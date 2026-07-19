@@ -1,0 +1,141 @@
+/* =========================================================================
+   Claude design · components  —  reusable desktop-app component classes
+   ref: base-resource/theme/DESIGN.md  ·  tokens: tokens.css
+   Compact desktop density. color-block depth, hairlines, no scale/lift hover.
+   Coral scarce: primary CTA + focus rings + inline links only.
+   ========================================================================= */
+
+/* ---------- page floor (prototype desk the window floats on) ---------- */
+.desk-floor{background:var(--surface-soft);}            /* #f5f0e8 */
+.desk-floor.center{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}
+
+/* ---------- window chrome ---------- */
+.win{background:var(--canvas);border-radius:var(--r-lg);overflow:hidden;display:flex;flex-direction:column;}
+.win-shadow{box-shadow:var(--shadow-window);}
+.lights{display:flex;align-items:center;gap:8px;}
+.light{position:relative;border-radius:var(--r-pill);}
+.light::before{content:"";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:9px;color:rgba(0,0,0,.6);font-weight:700;opacity:0;transition:opacity .12s ease;}
+.lights:hover .light::before{opacity:1;}
+.light.red::before{content:"✕";} .light.yellow::before{content:"–";} .light.green::before{content:"+";}
+
+/* ---------- resizer (draggable gap; coral tint on hover) ---------- */
+.resizer{position:relative;width:10px;flex:0 0 auto;cursor:col-resize;z-index:20;border-radius:var(--r-md);transition:background-color .2s;}
+.resizer:hover{background:var(--tint-coral);}
+
+/* ---------- typography ---------- */
+.t-title{font-family:var(--serif);font-weight:500;letter-spacing:-0.02em;}
+.t-display{font-family:var(--serif);font-weight:400;letter-spacing:-0.3px;}   /* display-sm 28px */
+.eyebrow{font-size:12px;font-weight:500;color:var(--muted-soft);letter-spacing:1.5px;text-transform:uppercase;}
+
+/* ---------- buttons (compact app density; height 36 / icon 36) ---------- */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:36px;padding:0 16px;border-radius:var(--r-md);font-family:var(--sans);font-size:14px;font-weight:500;cursor:pointer;border:1px solid transparent;transition:background-color .15s,border-color .15s;}
+.btn-primary{background:var(--primary);color:var(--on-primary);border-color:var(--primary);}
+.btn-primary:hover{background:var(--primary-active);border-color:var(--primary-active);}
+.btn-primary:disabled{background:var(--surface-cream-strong);border-color:var(--surface-cream-strong);color:var(--muted-soft);cursor:not-allowed;}
+.btn-secondary{background:var(--canvas);color:var(--ink);border-color:var(--hairline);}
+.btn-secondary:hover{background:var(--surface-soft);}
+.btn-secondary-on-dark{background:var(--surface-dark-elevated);color:var(--on-dark);border-color:var(--surface-dark-elevated);}
+.btn-secondary-on-dark:hover{background:#2f2c28;}
+.btn-ghost{background:transparent;color:var(--ink);border-color:transparent;}
+.btn-ghost:hover{background:var(--surface-soft);}
+.btn-ghost.muted{color:var(--muted);}
+.btn-text-link{background:transparent;color:var(--ink);border:none;padding:0;height:auto;}
+.btn-text-link:hover{color:var(--primary);}
+.btn-icon{width:36px;padding:0;}                    /* square icon-only (pair with .btn + variant) */
+.btn-icon-sm{width:30px;height:30px;padding:0;border-radius:var(--r-sm);}  /* compact icon */
+/* toolbar ghost icon (28px, app titlebar) */
+.tb{display:grid;place-content:center;width:28px;height:28px;border-radius:var(--r-md);color:var(--ink);cursor:pointer;transition:background-color .15s;}
+.tb:hover{background:var(--surface-soft);}
+
+/* ---------- inputs (canvas + hairline; focus = coral + ring) ---------- */
+.text-input{width:100%;background:var(--canvas);color:var(--ink);border:1px solid var(--hairline);border-radius:var(--r-md);padding:10px 14px;font-family:var(--sans);font-size:14px;outline:none;transition:border-color .15s,box-shadow .15s;}
+.text-input::placeholder{color:var(--muted-soft);}
+.text-input:focus{border-color:var(--primary);box-shadow:var(--ring-coral);}
+.textarea{resize:vertical;line-height:1.6;}
+/* title input = serif display, transparent, hairline underline → coral on focus */
+.title-input{font-family:var(--serif);font-size:28px;font-weight:400;letter-spacing:-0.3px;color:var(--ink);background:transparent;border:none;outline:none;width:100%;border-bottom:1px solid var(--hairline-soft);padding-bottom:6px;transition:border-color .15s;}
+.title-input::placeholder{color:var(--muted-soft);}
+.title-input:focus{border-bottom-color:var(--primary);}
+
+/* ---------- cards / surfaces ---------- */
+/* KB card: canvas on surface-card desk; hover/selected = cream-strong + hairline (no lift, no shadow) */
+.card{position:relative;background:var(--canvas);border-radius:var(--r-md);padding:14px;cursor:pointer;box-shadow:0 0 0 1px transparent;transition:background-color .15s,box-shadow .15s;}
+.card:hover,.card.selected{background:var(--surface-cream-strong);box-shadow:0 0 0 1px var(--hairline);}
+/* generic surface card (feature/content) */
+.surface-card{background:var(--surface-card);border-radius:var(--r-lg);padding:var(--s-xl);}
+/* reading panel (canvas + hairline) */
+.panel{background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-lg);}
+/* code-window (dark navy, mono, syntax) — Claude signature */
+.code-window{background:var(--surface-dark-soft);border-radius:var(--r-md);padding:14px 16px;font-family:var(--mono);font-size:14px;line-height:1.65;color:var(--on-dark-soft);overflow:auto;}
+.code-window .k{color:var(--accent-teal);font-weight:500;}
+.code-window .s{color:var(--accent-amber);}
+.code-window .c{color:var(--on-dark-soft);font-style:italic;}
+.code-window .h{color:var(--on-dark);font-weight:700;}
+.code-window .lk{color:var(--primary);font-weight:600;background:rgba(204,120,92,.16);border-radius:3px;padding:0 2px;}
+
+/* code-editor — editable textarea + syntax-highlighted pre overlay (raw md source) */
+.code-editor{position:relative;background:var(--surface-dark-soft);border-radius:var(--r-md);overflow:hidden;transition:box-shadow .15s;}
+.code-editor.focus{box-shadow:inset 0 0 0 1.5px var(--primary),var(--ring-coral);}
+.code-editor pre,.code-editor textarea{position:absolute;inset:0;margin:0;padding:14px 16px;font-family:var(--mono);font-size:14px;line-height:1.7;white-space:pre-wrap;word-break:break-word;border-radius:var(--r-md);overflow:auto;}
+.code-editor pre{color:var(--on-dark-soft);pointer-events:none;}
+.code-editor textarea{color:transparent;caret-color:var(--on-dark);background:transparent;resize:none;outline:none;border:none;}
+.code-editor .h{color:var(--on-dark);font-weight:700;}      /* heading */
+.code-editor .ic{color:var(--accent-amber);}               /* inline code */
+.code-editor .lk{color:var(--primary);font-weight:600;background:rgba(204,120,92,.16);border-radius:3px;padding:0 2px;} /* wikilink */
+.code-editor .lm{color:var(--on-dark-soft);}               /* list marker */
+.code-editor .cb{color:var(--on-dark-soft);}              /* code fence */
+
+/* ---------- sidebar nav entry (color-block depth, no transforms) ---------- */
+.entry{display:flex;align-items:center;gap:8px;height:28px;padding:0 8px;border-radius:var(--r-sm);font-size:13px;cursor:pointer;transition:background-color .2s,color .2s;}
+.entry .dot{width:6px;height:6px;border-radius:var(--r-pill);flex:0 0 auto;transition:background-color .2s;}
+.entry.active{background:var(--surface-cream-strong);color:var(--ink);font-weight:500;}
+.entry.active .dot{background:var(--primary);}
+.entry:not(.active){color:var(--body-strong);}
+.entry:not(.active):hover{background:var(--surface-soft);}
+.entry:not(.active) .dot{background:var(--muted-soft);}
+.entry.focused{box-shadow:inset 0 0 0 2px var(--primary);}   /* keyboard focus */
+
+/* ---------- status dot ---------- */
+.dot{width:6px;height:6px;border-radius:var(--r-pill);background:var(--primary);flex:0 0 auto;}
+.dot.muted{background:var(--muted-soft);} .dot.success{background:var(--success);} .dot.error{background:var(--error);}
+
+/* ---------- inline links (coral = text-link) ---------- */
+.wl{color:var(--primary);font-weight:500;text-decoration:none;border-radius:4px;transition:background-color .15s;}
+.wl:hover{background:var(--tint-coral);text-decoration:underline;text-underline-offset:2px;}
+.wl.broken{color:var(--muted-soft);font-weight:400;text-decoration:underline dashed;text-underline-offset:2px;}
+.wl.broken:hover{background:rgba(0,0,0,.04);}
+.text-link{color:var(--primary);text-decoration:none;}
+.text-link:hover{text-decoration:underline;text-underline-offset:2px;}
+
+/* ---------- favorite star ---------- */
+.star{fill:none;stroke:var(--muted-soft);stroke-width:1.6;stroke-linejoin:round;cursor:pointer;transition:fill .15s,stroke .15s;}
+.star.on{fill:var(--primary);stroke:var(--primary);}
+
+/* ---------- badges ---------- */
+.badge-pill{background:var(--surface-card);color:var(--ink);font-size:13px;font-weight:500;border-radius:var(--r-pill);padding:4px 12px;}
+.badge-coral{background:var(--primary);color:var(--on-primary);font-size:12px;font-weight:500;letter-spacing:1.5px;text-transform:uppercase;border-radius:var(--r-pill);padding:4px 12px;}
+.badge{background:var(--surface-cream-strong);color:var(--muted);border-radius:var(--r-xs);padding:2px 8px;font-size:11px;}
+
+/* ---------- keyboard key ---------- */
+.kbd{font-family:var(--mono);background:var(--surface-dark-soft);border:1px solid var(--hairline-dark);border-radius:4px;padding:1px 5px;font-size:10px;color:var(--on-dark-soft);}
+.kbd-light{background:var(--surface-cream-strong);border-color:var(--hairline);color:var(--muted);}
+
+/* ---------- feedback ---------- */
+/* toast = dark navy pill */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--surface-dark);color:var(--on-dark);font-size:13px;padding:10px 18px;border-radius:var(--r-md);opacity:0;pointer-events:none;transition:opacity .2s;z-index:60;}
+.toast.show{opacity:1;}
+/* sheet = macOS slide-from-top dialog */
+.overlay{position:fixed;inset:0;background:rgba(20,20,19,.14);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding-top:84px;z-index:50;visibility:hidden;opacity:0;pointer-events:none;transition:opacity .2s ease;}
+.overlay.show{visibility:visible;opacity:1;pointer-events:auto;}
+.sheet{background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-lg);box-shadow:var(--shadow-modal);padding:28px;display:none;flex-direction:column;gap:18px;transform:translateY(-24px);opacity:0;transition:transform .2s ease,opacity .2s ease;}
+.overlay.show .sheet{transform:translateY(0);opacity:1;}
+.sheet-title{font-family:var(--serif);font-size:22px;font-weight:500;letter-spacing:-0.2px;color:var(--ink);}
+/* popover = floating canvas card */
+.popover{position:fixed;background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-md);box-shadow:var(--shadow-float);padding:20px;z-index:50;}
+
+/* ---------- empty state (three-dots logo) ---------- */
+.empty-dots{display:flex;gap:16px;align-items:center;justify-content:center;}
+.empty-dots i{width:8px;height:8px;border-radius:var(--r-pill);background:var(--muted-soft);opacity:.28;}
+
+/* ---------- brand spike-mark (Anthropic radial glyph, inline svg fill) ---------- */
+.mark{color:var(--primary);}

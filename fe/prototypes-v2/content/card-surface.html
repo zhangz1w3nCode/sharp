@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN" class="h-full">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>内容区 · 卡片质感</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../../base-resource/component/tokens.css">
+<link rel="stylesheet" href="../../base-resource/component/components.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<script>tailwind.config={theme:{extend:{colors:{ink:'var(--ink)',ink48:'var(--muted)',accent:'var(--primary)'}}}}</script>
+<style>
+  /* tokens · body · t-title → ../../base-resource/component/{tokens,components}.css */
+  .desk{background:var(--surface-card);border-radius:12px;padding:14px;}
+  .card{position:relative;border-radius:8px;padding:14px;background:var(--canvas);display:flex;flex-direction:column;gap:7px;width:240px;cursor:pointer;transition:background-color .18s ease,box-shadow .18s ease;box-shadow:0 0 0 1px transparent;}
+  .card:hover{background:var(--surface-cream-strong);box-shadow:0 0 0 1px var(--hairline);}
+  .t{font-size:15px;font-weight:600;color:var(--ink);line-height:1.3;}
+  .s{font-size:12px;color:var(--muted);line-height:1.55;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+  .m{display:flex;justify-content:flex-end;margin-top:4px;}
+  .star{fill:none;stroke:var(--muted-soft);stroke-width:1.6;stroke-linejoin:round;transition:fill .15s,stroke .15s;}
+  .star.on{fill:var(--primary);stroke:var(--primary);}
+  .lbl{font-size:11px;color:var(--muted);text-align:center;margin-top:10px;letter-spacing:.1px;}
+  code{background:var(--surface-cream-strong);padding:1px 5px;border-radius:4px;font-size:11px;font-family:var(--mono);color:var(--ink);}
+</style>
+</head>
+<body class="min-h-screen m-0 p-10" style="background:#f5f0e8;">
+  <div class="max-w-[560px] mx-auto">
+    <div class="t-title text-[22px] text-[var(--ink)]">内容区 · 卡片质感</div>
+
+    <div class="desk">
+      <div class="card mx-auto">
+        <div class="t">Tauri v2 窗口 vibrancy</div>
+        <div class="s">macOS 用 windowEffects+vibrancy;需 NSVisualEffectView 兼容配置。</div>
+        <div class="m"><svg class="star on" width="14" height="14" viewBox="0 0 24 24"><path d="M12 3l2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.8 6.8 19l1-5.8-4.2-4.1 5.8-.8z"/></svg></div>
+      </div>
+    </div>
+    <div class="lbl">canvas · 无纸纹 · 无阴影</div>
+
+  </div>
+  <script>
+    document.querySelectorAll('.card .m').forEach(m=>m.addEventListener('click',e=>{e.stopPropagation();const s=m.querySelector('.star');if(s)s.classList.toggle('on');}));
+  </script>
+</body>
+</html>

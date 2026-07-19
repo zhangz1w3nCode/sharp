@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN" class="h-full">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>内容区 · 卡片状态全集</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../../base-resource/component/tokens.css">
+<link rel="stylesheet" href="../../base-resource/component/components.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<script>tailwind.config={theme:{extend:{colors:{ink:'var(--ink)',ink48:'var(--muted)',accent:'var(--primary)'}}}}</script>
+<style>
+  /* tokens · body · t-title → ../../base-resource/component/{tokens,components}.css */
+  .desk{background:var(--surface-card);border-radius:12px;padding:14px;}
+  .card{position:relative;border-radius:8px;padding:14px;background:var(--canvas);display:flex;flex-direction:column;gap:7px;width:230px;}
+  .t{font-size:15px;font-weight:600;color:var(--ink);line-height:1.3;}
+  .s{font-size:12px;color:var(--muted);line-height:1.55;}
+  .m{display:flex;justify-content:flex-end;margin-top:4px;}
+  .star{fill:none;stroke:var(--muted-soft);stroke-width:1.6;stroke-linejoin:round;}
+  .star.on{fill:var(--primary);stroke:var(--primary);}
+  .st-default{box-shadow:0 0 0 1px transparent;}
+  .st-lift{background:var(--surface-cream-strong);box-shadow:0 0 0 1px var(--hairline);}
+  .lbl{font-size:11px;color:var(--muted);text-align:center;margin-top:10px;letter-spacing:.1px;}
+  code{background:var(--surface-cream-strong);padding:1px 5px;border-radius:4px;font-size:11px;font-family:var(--mono);color:var(--ink);}
+</style>
+</head>
+<body class="min-h-screen m-0 p-10" style="background:#f5f0e8;">
+  <div class="max-w-[820px] mx-auto">
+    <div class="t-title text-[22px] text-[var(--ink)]">内容区 · 卡片状态全集</div>
+
+    <div class="desk flex flex-wrap gap-5">
+      <div>
+        <div class="card st-default">
+          <div class="t">Tauri v2 窗口 vibrancy</div>
+          <div class="s">macOS 用 windowEffects+vibrancy;需 NSVisualEffectView 兼容配置。</div>
+          <div class="m"><svg class="star on" width="14" height="14" viewBox="0 0 24 24"><path d="M12 3l2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.8 6.8 19l1-5.8-4.2-4.1 5.8-.8z"/></svg></div>
+        </div>
+        <div class="lbl">默认</div>
+      </div>
+      <div>
+        <div class="card st-lift">
+          <div class="t">Tauri v2 窗口 vibrancy</div>
+          <div class="s">macOS 用 windowEffects+vibrancy;需 NSVisualEffectView 兼容配置。</div>
+          <div class="m"><svg class="star on" width="14" height="14" viewBox="0 0 24 24"><path d="M12 3l2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.8 6.8 19l1-5.8-4.2-4.1 5.8-.8z"/></svg></div>
+        </div>
+        <div class="lbl">悬停</div>
+      </div>
+      <div>
+        <div class="card st-lift">
+          <div class="t">Tauri v2 窗口 vibrancy</div>
+          <div class="s">macOS 用 windowEffects+vibrancy;需 NSVisualEffectView 兼容配置。</div>
+          <div class="m"><svg class="star on" width="14" height="14" viewBox="0 0 24 24"><path d="M12 3l2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.8 6.8 19l1-5.8-4.2-4.1 5.8-.8z"/></svg></div>
+        </div>
+        <div class="lbl">选中</div>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>

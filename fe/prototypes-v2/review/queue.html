@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-CN" class="h-full">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>知识审核 · 待审队列</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../../base-resource/component/tokens.css">
+<link rel="stylesheet" href="../../base-resource/component/components.css">
+<script src="../../base-resource/js/ui.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script>tailwind.config={theme:{extend:{colors:{ink:'var(--ink)',ink80:'var(--body-strong)',ink48:'var(--muted)',canvas:'var(--canvas)',card:'var(--surface-card)',muted:'var(--surface-cream-strong)',emphasis:'var(--surface-cream-strong)',selected:'var(--surface-cream-strong)',accent:'var(--primary)','on-primary':'var(--on-primary)'}}}}</script>
+<style>
+  /* tokens · body · t-title → ../../base-resource/component/{tokens,components}.css */
+  .desk{background:var(--surface-card);border-radius:12px;padding:14px;}
+  /* queue item = Claude flat card: canvas on surface-card desk; hover/sel = cream-strong + hairline (no lift, no noise, no shadow) */
+  .item{position:relative;border-radius:8px;padding:14px;background:var(--canvas);display:flex;flex-direction:column;gap:7px;cursor:pointer;transition:background-color .18s ease,box-shadow .18s ease,opacity .3s ease;box-shadow:0 0 0 1px transparent;}
+  .item:hover,.item.sel{background:var(--surface-cream-strong);box-shadow:0 0 0 1px var(--hairline);}
+  .item.leaving{opacity:0;}
+  .row1{display:flex;align-items:center;gap:8px;}
+  .t{font-size:15px;font-weight:600;color:var(--ink);line-height:1.3;flex:1;}
+  .chev-btn{cursor:pointer;flex:0 0 auto;display:inline-flex;align-items:center;}
+  .chev{color:var(--muted-soft);transition:transform .2s ease;display:block;}
+  .item.open .chev{transform:rotate(180deg);}
+  .status{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);flex:0 0 auto;}
+  .dot{width:6px;height:6px;border-radius:9999px;background:var(--primary);}
+  .s{font-size:12px;color:var(--muted);line-height:1.55;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+  .row2{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);flex-wrap:wrap;}
+  .badge{background:var(--surface-cream-strong);color:var(--muted);border-radius:4px;padding:2px 8px;font-size:11px;letter-spacing:.02em;}
+  .tag{display:inline-flex;align-items:center;gap:3px;font-size:11px;color:var(--muted);}
+  .acts{margin-left:auto;display:flex;align-items:center;gap:6px;}
+  .btn{display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 12px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;transition:background-color .15s,border-color .15s;}
+  .btn.primary{background:var(--primary);color:var(--on-primary);border:1px solid var(--primary);}
+  .btn.primary:hover{background:var(--primary-active);border-color:var(--primary-active);}
+  .btn.ghost{background:transparent;color:var(--ink);border:1px solid transparent;}
+  .btn.ghost:hover{background:var(--surface-soft);}
+  .btn.icon{width:32px;height:32px;padding:0;justify-content:center;}
+  .btn.icon svg{width:15px;height:15px;}
+  /* new-type full proposed content (inline expand) — nested cream-strong box */
+  .full{display:none;font-size:13px;color:var(--body);line-height:1.7;background:var(--surface-cream-strong);border-radius:6px;padding:12px 14px;margin-top:4px;}
+  .item.open .full{display:block;}
+  .full .h{font-family:var(--serif);font-weight:500;font-size:15px;color:var(--ink);margin-bottom:4px;}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--surface-dark);color:var(--on-dark);font-size:13px;padding:10px 18px;border-radius:8px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:50;}
+  .toast.show{opacity:1;}
+  .hint{font-size:11px;color:var(--muted);}
+</style>
+</head>
+<body class="min-h-screen m-0 p-10 flex flex-col items-center" style="background:#f5f0e8;">
+  <div class="t-title text-[24px] text-[var(--ink)] mb-1">知识审核 · 待审队列</div>
+
+
+  <main class="w-[820px] h-[560px] desk flex flex-col">
+    <div id="queue" class="flex-1 flex flex-col gap-2.5 overflow-auto"></div>
+  </main>
+
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+  const ITEMS=[
+    {type:"new",src:"大模型",title:"React Server Components 速记",snippet:"RSC 在服务端渲染、不 hydrate;与 Client Components 边界靠 'use client'。",ts:"2 分钟前",
+     full:"## RSC 速记\n\nRSC 在服务端渲染、不 hydrate;与 Client Components 边界靠 'use client'。\n\n- 服务端组件不能 useState/useEffect\n- 客户端组件以 'use client' 声明"},
+    {type:"update",src:"大模型",title:"Tauri v2 窗口 vibrancy",snippet:"更新 vibrancy 配置说明,补充 NSHUDWindowMaterial 兼容。",ts:"8 分钟前"},
+    {type:"new",src:"手动新建",title:"极简设计:去分隔线",snippet:"表面色反差 + 间隙分层,不用 hairline,更克制高级。",ts:"15 分钟前",
+     full:"## 去分隔线\n\n表面色反差(canvas→card→muted)+ 间隙分层,不用 hairline。\n\n- box 隔离:色调反差 + 圆角\n- 无描边、无分割线"},
+    {type:"update",src:"大模型",title:"Wikilink 解析 [path|relation]",snippet:"slug 概念改为相对 path;关系为自由文本。",ts:"23 分钟前"},
+    {type:"new",src:"大模型",title:"知识图谱 force-directed 布局",snippet:"d3-force / vis-network;节点按 degree 缩放,边有向。",ts:"31 分钟前",
+     full:"## force-directed\n\n- d3-force / vis-network\n- 节点按 degree 缩放\n- 边有向(A→B,A 含 [B|…])"},
+  ];
+  const CHECK='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+  const PENCIL='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
+  const DIFF='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="7" height="14" rx="1.5"/><rect x="13.5" y="5" width="7" height="14" rx="1.5"/></svg>';
+  const CHAIN='<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 15l6-6"/><path d="M10.5 6.5l.5-.5a3.5 3.5 0 0 1 5 5l-.5.5"/><path d="M13.5 17.5l-.5.5a3.5 3.5 0 0 1-5-5l.5-.5"/></svg>';
+  const CHEV='<svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
+
+  /* esc → base-resource/js/ui.js */
+  function renderFull(md){
+    return esc(md).replace(/^##\s.*$/gm,m=>'<div class="h">'+m.slice(3)+'</div>').replace(/\n/g,"<br>");
+  }
+
+  const queue=document.getElementById("queue");
+  queue.innerHTML=ITEMS.map((it,i)=>{
+    const isUp=it.type==="update";
+    const chev=it.type==="new"?`<span class="chev-btn" onclick="event.stopPropagation();toggleFull(this)">${CHEV}</span>`:"";
+    const typeTag=isUp?`<span class="tag">${DIFF}更新</span>`:`<span class="tag">${CHAIN}新建</span>`;
+    const diffBtn=isUp?`<button class="btn ghost icon" title="查看改动" onclick="event.stopPropagation();location.href='diff.html'">${DIFF}</button>`:"";
+    const full=it.full?`<div class="full">${renderFull(it.full)}</div>`:"";
+    return `<div class="item" data-i="${i}" onclick="selectCard(this)">
+      <div class="row1">
+        <div class="t">${esc(it.title)}</div>
+        ${chev}
+        <div class="status"><span class="dot"></span>待审</div>
+      </div>
+      <div class="s">${esc(it.snippet)}</div>
+      <div class="row2">
+        <span class="badge">${esc(it.src)}</span>
+        ${typeTag}
+        <span>${esc(it.ts)}</span>
+        <div class="acts">
+          ${diffBtn}
+          <button class="btn ghost icon" title="编辑" onclick="event.stopPropagation();location.href='../detail/edit.html'">${PENCIL}</button>
+          <button class="btn primary icon" title="通过" onclick="event.stopPropagation();approve(this)">${CHECK}</button>
+        </div>
+      </div>
+      ${full}
+    </div>`;
+  }).join("");
+
+  /* toast → base-resource/js/ui.js */
+  function selectCard(el){const p=el.parentElement;const was=el.classList.contains("sel");p.querySelectorAll(".item.sel").forEach(x=>x.classList.remove("sel"));if(!was)el.classList.add("sel");}
+  function approve(btn){const item=btn.closest(".item");item.classList.add("leaving");toast("已通过 → 知识库");setTimeout(()=>item.remove(),300);}
+  function toggleFull(t){t.closest(".item").classList.toggle("open");}
+  </script>
+</body>
+</html>

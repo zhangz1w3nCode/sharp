@@ -1,0 +1,14 @@
+# ---- macOS ----
+.DS_Store
+
+# ---- app: 前端 ----
+app/node_modules/
+app/dist/
+
+# ---- app: Tauri / Rust(3GB+ 构建产物) ----
+app/src-tauri/target/
+app/src-tauri/gen/
+
+# ---- 本地临时 ----
+*.local
+nohup.out

@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="zh-CN" class="h-full">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sheets / 对话框</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../../base-resource/component/tokens.css">
+<link rel="stylesheet" href="../../base-resource/component/components.css">
+<script src="../../base-resource/js/ui.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script>tailwind.config={theme:{extend:{colors:{ink:'var(--ink)',ink80:'var(--body-strong)',ink48:'var(--muted)',canvas:'var(--canvas)',card:'var(--surface-card)',muted:'var(--surface-cream-strong)',emphasis:'var(--surface-cream-strong)',selected:'var(--surface-cream-strong)',accent:'var(--primary)','on-primary':'var(--on-primary)'}}}}</script>
+<style>
+  /* tokens · body · t-title → ../../base-resource/component/{tokens,components}.css */
+  /* triggers — Claude secondary buttons */
+  .trig{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 16px;border:1px solid var(--hairline);border-radius:8px;background:var(--canvas);font-size:14px;font-weight:500;color:var(--ink);cursor:pointer;transition:background-color .15s;}
+  .trig:hover{background:var(--surface-soft);}
+  .trig svg{flex:0 0 auto;}
+  /* overlay: warm-tinted backdrop blur (NOT a black block) */
+  .overlay{position:fixed;inset:0;background:rgba(20,20,19,.14);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding-top:84px;z-index:50;visibility:hidden;opacity:0;pointer-events:none;transition:opacity .2s ease;}
+  .overlay.show{visibility:visible;opacity:1;pointer-events:auto;}
+  /* sheet: slide from top, canvas + hairline + rare shadow (floating object) */
+  .sheet{width:480px;max-width:92vw;max-height:calc(100vh - 120px);overflow:auto;background:var(--canvas);border:1px solid var(--hairline);border-radius:12px;box-shadow:0 18px 50px rgba(20,20,19,.12);padding:28px;display:none;flex-direction:column;gap:18px;transform:translateY(-24px);opacity:0;transition:transform .2s ease,opacity .2s ease;}
+  .overlay.show .sheet{transform:translateY(0);opacity:1;}
+  .sheet-head{display:flex;align-items:center;gap:8px;}
+  .sheet-title{font-family:var(--serif);font-size:22px;font-weight:500;letter-spacing:-0.2px;color:var(--ink);flex:1;}
+  .x{width:30px;height:30px;display:grid;place-content:center;border:1px solid var(--hairline);border-radius:8px;background:var(--canvas);color:var(--muted);cursor:pointer;transition:background-color .15s,color .15s;}
+  .x:hover{background:var(--surface-soft);color:var(--ink);}
+  .eyebrow{font-size:12px;font-weight:500;color:var(--muted-soft);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px;}
+  /* Claude text-input: canvas + hairline; focus = coral border + 3px coral 15% ring */
+  .inp{width:100%;background:var(--canvas);border:1px solid var(--hairline);border-radius:8px;padding:10px 14px;font-size:14px;color:var(--ink);font-family:inherit;outline:none;transition:border-color .15s,box-shadow .15s;}
+  .inp::placeholder{color:var(--muted-soft);}
+  .inp:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(204,120,92,.15);}
+  textarea.inp{resize:vertical;line-height:1.6;}
+  .t-input{font-family:var(--serif);font-size:28px;font-weight:400;letter-spacing:-0.3px;color:var(--ink);background:transparent;border:none;outline:none;flex:1;border-bottom:1px solid var(--hairline-soft);padding-bottom:6px;transition:border-color .15s;}
+  .t-input::placeholder{color:var(--muted-soft);}
+  .t-input:focus{border-bottom-color:var(--primary);}
+  .s-input{width:100%;background:var(--canvas);border:1px solid var(--hairline);border-radius:8px;padding:10px 14px;font-size:14px;color:var(--body-strong);line-height:1.6;font-family:inherit;resize:none;outline:none;transition:border-color .15s,box-shadow .15s;}
+  .s-input::placeholder{color:var(--muted-soft);}
+  .s-input:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(204,120,92,.15);}
+  .ed-head{display:flex;align-items:center;gap:8px;}
+  /* raw md editor = DARK NAVY code-window-card (Claude signature) */
+  .ed-wrap{position:relative;height:200px;background:var(--surface-dark-soft);border-radius:8px;transition:box-shadow .15s;}
+  .ed-wrap.focus{box-shadow:inset 0 0 0 1.5px var(--primary),0 0 0 3px rgba(204,120,92,.15);}
+  .ed-pre,.ed-ta{position:absolute;top:0;left:0;width:100%;height:100%;margin:0;padding:14px 16px;font-family:var(--mono);font-size:14px;line-height:1.7;white-space:pre-wrap;word-break:break-word;border-radius:8px;}
+  .ed-pre{color:var(--on-dark-soft);pointer-events:none;overflow:auto;}
+  .ed-ta{color:transparent;caret-color:var(--on-dark);background:transparent;resize:none;outline:none;border:none;overflow:auto;}
+  .ed-pre .h{color:var(--on-dark);font-weight:700;} .ed-pre b{font-weight:700;color:var(--on-dark);} .ed-pre .ic{color:var(--accent-amber);} .ed-pre .lk{color:var(--primary);font-weight:600;background:rgba(204,120,92,.16);border-radius:3px;padding:0 2px;} .ed-pre .lm{color:var(--on-dark-soft);} .ed-pre .cb{color:var(--on-dark-soft);}
+  /* @ insertion popups — fixed, floating canvas cards */
+  .ac{position:fixed;width:300px;max-width:90vw;background:var(--canvas);border:1px solid var(--hairline);border-radius:8px;box-shadow:0 8px 24px rgba(20,20,19,.12);padding:5px;z-index:60;display:none;}
+  .ac-h{font-size:11px;color:var(--muted-soft);padding:5px 9px 4px;letter-spacing:.05em;text-transform:uppercase;}
+  .ac-item{display:flex;align-items:center;gap:7px;padding:7px 9px;border-radius:6px;cursor:pointer;font-size:13px;color:var(--ink);}
+  .ac-item:hover,.ac-item.sel{background:var(--surface-cream-strong);}
+  .ac-item .d{width:6px;height:6px;border-radius:9999px;background:var(--muted-soft);flex:0 0 auto;}
+  .ac-item.sel .d{background:var(--primary);}
+  .ac-path{color:var(--muted-soft);font-size:11px;margin-left:auto;font-family:var(--mono);}
+  .ac-foot{display:flex;align-items:center;gap:8px;padding:8px;}
+  .ac-input{flex:1;border:1px solid var(--hairline);border-radius:6px;padding:7px 10px;font-size:13px;outline:none;background:var(--canvas);color:var(--ink);transition:border-color .15s,box-shadow .15s;}
+  .ac-input:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(204,120,92,.15);}
+  .ac-foot .btn{height:32px;padding:0 12px;}
+  /* settings sections — nested surface-card boxes (box isolation, no hairlines) */
+  .set-sec{background:var(--surface-card);border-radius:8px;padding:14px 16px;}
+  .set-sec-t{font-size:11px;font-weight:500;color:var(--muted-soft);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:10px;}
+  .set-row{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:14px;color:var(--ink);}
+  .set-row .sub{font-size:12px;color:var(--muted);margin-top:4px;}
+  .md-inline{background:var(--surface-cream-strong);padding:1px 6px;border-radius:4px;font-size:12px;font-family:var(--mono);color:var(--ink);}
+  .path-box{background:var(--surface-cream-strong);border-radius:8px;padding:12px 14px;font-family:var(--mono);font-size:13px;color:var(--body-strong);}
+  .toggle{display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:14px;color:var(--ink);}
+  .toggle .sw{width:28px;height:16px;border-radius:9999px;background:var(--muted-soft);position:relative;transition:background-color .15s;flex:0 0 auto;}
+  .toggle .sw::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:9999px;background:#fff;transition:transform .15s;}
+  .toggle.on .sw{background:var(--primary);}
+  .toggle.on .sw::after{transform:translateX(12px);}
+  .toggle.locked{opacity:.55;cursor:not-allowed;}
+  .sheet-foot{display:flex;align-items:center;gap:8px;justify-content:flex-end;}
+  .btn{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 16px;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;transition:background-color .15s,border-color .15s;}
+  .btn.primary{background:var(--primary);color:var(--on-primary);border:1px solid var(--primary);}
+  .btn.primary:hover{background:var(--primary-active);border-color:var(--primary-active);}
+  .btn.primary:disabled{background:var(--surface-cream-strong);border-color:var(--surface-cream-strong);color:var(--muted-soft);cursor:not-allowed;}
+  .btn.secondary{background:var(--canvas);color:var(--ink);border:1px solid var(--hairline);}
+  .btn.secondary:hover{background:var(--surface-soft);}
+  .hint{font-size:12px;color:var(--muted);line-height:1.6;}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--surface-dark);color:var(--on-dark);font-size:13px;padding:10px 18px;border-radius:8px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:60;}
+  .toast.show{opacity:1;}
+</style>
+</head>
+<body class="min-h-screen m-0 p-10 flex flex-col items-center" style="background:#f5f0e8;">
+  <div class="t-title text-[24px] text-[var(--ink)] mb-1">Sheets / 对话框</div>
+
+
+  <div class="flex gap-2.5 mb-3">
+    <button class="trig" data-sheet="new"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新建卡片</button>
+    <button class="trig" data-sheet="settings"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>设置</button>
+    <button class="trig" data-sheet="broken"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 15l6-6"/><path d="M10.5 6.5l.5-.5a3.5 3.5 0 0 1 5 5l-.5.5"/><path d="M13.5 17.5l-.5.5a3.5 3.5 0 0 1-5-5l.5-.5"/><line x1="5" y1="5" x2="19" y2="19"/></svg>断链创建</button>
+  </div>
+
+
+  <!-- overlay + 3 sheets (shared backdrop) -->
+  <div class="overlay" id="overlay">
+
+    <!-- new card sheet -->
+    <div class="sheet" id="sheet-new">
+      <div class="ed-head">
+        <input class="t-input" id="nc-title" placeholder="卡片标题">
+        <button class="btn secondary" data-close>取消</button>
+        <button class="btn primary" id="nc-ok" disabled>确认</button>
+      </div>
+
+      <div><div class="eyebrow">概述</div><textarea class="s-input" id="nc-summary" rows="2" placeholder="一句话概述"></textarea></div>
+      <div>
+        <div class="eyebrow">内容</div>
+        <div class="ed-wrap" id="nc-wrap"><pre class="ed-pre" id="nc-pre"></pre><textarea class="ed-ta" id="nc-ta" spellcheck="false" placeholder="## 标题&#10;正文,输入 @ 引用&#10;&#10;- 要点"></textarea>
+          <div class="ac" id="ac1">
+            <div class="ac-h">@ 插入链接 · 选目标卡</div>
+            <div class="ac-item sel"><span class="d"></span>macOS HIG <span class="ac-path">.knowledges/notes/macos-hig.md</span></div>
+            <div class="ac-item"><span class="d"></span>Wikilink 解析 <span class="ac-path">.knowledges/notes/wikilink.md</span></div>
+            <div class="ac-item"><span class="d"></span>SF Pro 字体回退栈 <span class="ac-path">.knowledges/notes/sfpro.md</span></div>
+            <div class="ac-item"><span class="d"></span>极简设计:去分隔线 <span class="ac-path">.knowledges/notes/no-dividers.md</span></div>
+            <div class="ac-item"><span class="d"></span>React Server Components 速记 <span class="ac-path">.knowledges/notes/rsc.md</span></div>
+          </div>
+          <div class="ac" id="ac2">
+            <div class="ac-h">输入关系(自由,如:引用/相关/扩展/依赖…)</div>
+            <div class="ac-foot"><input class="ac-input" id="rel-input" placeholder="关系(可留空 = [path])"><button class="btn primary" id="rel-ok">插入</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- settings sheet -->
+    <div class="sheet" id="sheet-settings">
+      <div class="sheet-head"><div class="sheet-title">设置</div><div class="x" data-close><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg></div></div>
+      <div class="set-sec">
+        <div class="set-sec-t">外观</div>
+        <div class="set-row"><span>主题</span><div class="toggle on locked" id="set-theme"><span class="sw"></span>浅色</div></div>
+
+      </div>
+      <div class="set-sec">
+        <div class="set-sec-t">Wikilink 格式</div>
+        <div class="set-row" style="flex-direction:column;align-items:flex-start;"><span><span class="md-inline">[path|relation]</span> 或 <span class="md-inline">[path]</span></span></div>
+      </div>
+      <div class="set-sec">
+        <div class="set-sec-t">关于</div>
+        <div class="set-row"><span>知识库桌面应用</span></div>
+      </div>
+      <div class="sheet-foot"><button class="btn secondary" data-close>完成</button></div>
+    </div>
+
+    <!-- create-from-broken-link sheet -->
+    <div class="sheet" id="sheet-broken">
+      <div class="sheet-head"><div class="sheet-title">创建卡片</div><div class="x" data-close><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg></div></div>
+      <div class="hint">以下路径未解析,是否以此创建卡片?</div>
+      <div class="path-box">.knowledges/notes/unknown.md</div>
+
+      <div class="sheet-foot"><button class="btn secondary" data-close>取消</button><button class="btn primary" id="bl-ok">确认</button></div>
+    </div>
+
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+  const overlay=document.getElementById("overlay");
+  const sheets={new:document.getElementById("sheet-new"),settings:document.getElementById("sheet-settings"),broken:document.getElementById("sheet-broken")};
+
+  const ncTitle=document.getElementById("nc-title"),ncOk=document.getElementById("nc-ok");
+  function updateOk(){ ncOk.disabled=!ncTitle.value.trim(); }
+  ncTitle.addEventListener("input",updateOk);
+  function openSheet(name){
+    Object.values(sheets).forEach(s=>s.style.display="none");
+    sheets[name].style.display="flex";
+    requestAnimationFrame(()=>requestAnimationFrame(()=>overlay.classList.add("show")));
+    if(name==="new"){ ncTitle.value=""; document.getElementById("nc-summary").value=""; ncTa.value=""; rehlight(); updateOk(); setTimeout(()=>ncTitle.focus(),240); }
+  }
+  function closeSheet(){ overlay.classList.remove("show"); }
+
+  document.querySelectorAll(".trig").forEach(b=>b.addEventListener("click",()=>openSheet(b.dataset.sheet)));
+  document.addEventListener("click",e=>{ if(e.target.closest("[data-close]")) closeSheet(); });
+  overlay.addEventListener("click",e=>{ if(e.target===overlay) closeSheet(); });
+  document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ closeSheet(); return; } if((e.metaKey||e.ctrlKey)&&e.key==="Enter"){ if(sheets.new.style.display==="flex"&&!ncOk.disabled){ ncOk.click(); } else if(sheets.broken.style.display==="flex"){ document.getElementById("bl-ok").click(); } } });
+
+  document.getElementById("nc-ok").addEventListener("click",()=>{ toast("已生成待审 → 知识审核"); closeSheet(); });
+  document.getElementById("bl-ok").addEventListener("click",()=>{ toast("已生成待审 → 知识审核"); closeSheet(); });
+  document.getElementById("set-theme").addEventListener("click",e=>{ e.stopPropagation(); toast("浅色锁定(暗色为派生,原型不提供)"); });
+
+  // raw md source editor — textarea + pre overlay (highlight)
+  /* esc → base-resource/js/ui.js */
+  function hl(md){
+    md=esc(md);
+    md=md.replace(/```[\s\S]*?```/g,m=>'<span class="cb">'+m+'</span>');
+    md=md.replace(/^#{1,6}\s.*$/gm,m=>'<span class="h">'+m+'</span>');
+    md=md.replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>');
+    md=md.replace(/`[^`]+`/g,m=>'<span class="ic">'+m+'</span>');
+    md=md.replace(/\[\.knowledges[^\]]+\]/g,m=>'<span class="lk">'+m+'</span>');
+    md=md.replace(/^([-*])\s/gm,'<span class="lm">$1</span> ');
+    return md;
+  }
+  const ncTa=document.getElementById("nc-ta"),ncPre=document.getElementById("nc-pre"),ncWrap=document.getElementById("nc-wrap");
+  const ac1=document.getElementById("ac1"),ac2=document.getElementById("ac2"),relInput=document.getElementById("rel-input"),relOk=document.getElementById("rel-ok");
+  const items=[...ac1.querySelectorAll(".ac-item")]; let sel=0,atPos=null,picked=null;
+  function rehlight(){ ncPre.innerHTML=hl(ncTa.value); }
+  function setSel(i){ sel=(i+items.length)%items.length; items.forEach((it,idx)=>it.classList.toggle("sel",idx===sel)); }
+  function positionAc(){ const r=ncTa.getBoundingClientRect(); const t=r.bottom+4,l=r.left; ac1.style.top=t+"px"; ac1.style.left=l+"px"; ac2.style.top=t+"px"; ac2.style.left=l+"px"; }
+  function showAc(n){ ac1.style.display=(n===1)?"block":"none"; ac2.style.display=(n===2)?"block":"none"; if(n>0)positionAc(); }
+  function replaceAt(text){ const v=ncTa.value; const a=atPos!=null?atPos:(ncTa.selectionStart-1); ncTa.value=v.slice(0,a)+text+v.slice(a+1); ncTa.selectionStart=ncTa.selectionEnd=a+text.length; ncTa.focus(); rehlight(); }
+  function pick(it){ const m=it.textContent.match(/\.knowledges\/[^\s]+\.md/); picked={path:m?m[0]:'.knowledges/notes/x.md'}; showAc(2); relInput.value=""; relInput.focus(); }
+  function commitRel(){ const rel=relInput.value.trim(); replaceAt("["+picked.path+(rel?"|"+rel:"")+"]"); showAc(0); }
+  ncTa.addEventListener("input",()=>{ rehlight(); const c=ncTa.selectionStart; if(ncTa.value[c-1]==="@"){ atPos=c-1; showAc(1); setSel(0); } else showAc(0); });
+  ncTa.addEventListener("scroll",()=>{ ncPre.scrollTop=ncTa.scrollTop; ncPre.scrollLeft=ncTa.scrollLeft; });
+  ncTa.addEventListener("focus",()=>ncWrap.classList.add("focus"));
+  ncTa.addEventListener("blur",()=>ncWrap.classList.remove("focus"));
+  ncTa.addEventListener("keydown",e=>{
+    if((e.key==="Backspace"||e.key==="Delete")&&ncTa.selectionStart===ncTa.selectionEnd&&ac1.style.display!=="block"&&ac2.style.display!=="block"){
+      const c=ncTa.selectionStart,v=ncTa.value;
+      if(e.key==="Backspace"){ const m=v.slice(0,c).match(/\[\.knowledges[^\]]*\]$/); if(m){e.preventDefault();const s=c-m[0].length;ncTa.value=v.slice(0,s)+v.slice(c);ncTa.selectionStart=ncTa.selectionEnd=s;rehlight();return;} }
+      else{ const m=v.slice(c).match(/^\[\.knowledges[^\]]*\]/); if(m){e.preventDefault();ncTa.value=v.slice(0,c)+v.slice(c+m[0].length);ncTa.selectionStart=ncTa.selectionEnd=c;rehlight();return;} }
+    }
+    if(ac1.style.display==="block"){
+      if(e.key==="ArrowDown"){e.preventDefault();setSel(sel+1);}
+      else if(e.key==="ArrowUp"){e.preventDefault();setSel(sel-1);}
+      else if(e.key==="Enter"){e.preventDefault();pick(items[sel]);}
+      else if(e.key==="Escape"){e.preventDefault();replaceAt("");showAc(0);}
+    } else if(ac2.style.display==="block"){
+      if(e.key==="Enter"){e.preventDefault();commitRel();}
+      else if(e.key==="Escape"){e.preventDefault();replaceAt("");showAc(0);}
+    }
+  });
+  items.forEach((it,idx)=>it.addEventListener("click",()=>{setSel(idx);pick(it);}));
+  relOk.addEventListener("click",commitRel);
+  relInput.addEventListener("keydown",e=>{ if(e.key==="Enter"){e.preventDefault();commitRel();} else if(e.key==="Escape"){e.preventDefault();replaceAt("");showAc(0);} });
+  rehlight();
+
+  /* toast → base-resource/js/ui.js */
+  </script>
+</body>
+</html>

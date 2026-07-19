@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN" class="h-full">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>侧栏 · 条目设计</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../../base-resource/component/tokens.css">
+<link rel="stylesheet" href="../../base-resource/component/components.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<script>tailwind.config={theme:{extend:{colors:{ink:'var(--ink)',ink80:'var(--body-strong)',ink48:'var(--muted)',card:'var(--surface-card)',muted:'var(--surface-cream-strong)',selected:'var(--surface-cream-strong)',accent:'var(--primary)'}}}}</script>
+<style>
+  /* tokens · body · t-title → ../../base-resource/component/{tokens,components}.css */
+  .mini{width:230px;border-radius:12px;background:var(--surface-card);padding:10px;display:flex;flex-direction:column;gap:2px;}
+  .e{height:28px;display:flex;align-items:center;gap:8px;padding:0 8px;border-radius:6px;font-size:13px;letter-spacing:.1px;}
+  .e .d{width:6px;height:6px;border-radius:9999px;flex:0 0 auto;transition:background-color .2s ease;}
+  .active{background:var(--surface-cream-strong);color:var(--ink);font-weight:500;}
+  .active .d{background:var(--primary);}
+  .inactive{color:var(--body-strong);}
+  .inactive .d{background:var(--muted-soft);}
+  .lbl{font-size:11px;color:var(--muted);text-align:center;margin-top:8px;letter-spacing:.1px;}
+  code{background:var(--surface-cream-strong);padding:1px 5px;border-radius:4px;font-size:11px;font-family:var(--mono);color:var(--ink);}
+</style>
+</head>
+<body class="min-h-screen m-0 p-10" style="background:#f5f0e8;">
+  <div class="max-w-[520px] mx-auto">
+    <div class="t-title text-[20px] text-[var(--ink)]">侧栏 · 条目设计</div>
+
+
+    <div class="mini">
+      <div class="e active"><span class="d"></span>知识库</div>
+      <div class="e inactive"><span class="d"></span>知识审核</div>
+    </div>
+    <div class="lbl">V1 · 极简</div>
+
+
+  </div>
+</body>
+</html>

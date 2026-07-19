@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-CN" class="h-full">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>搜索 · 右上角下拉</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../../base-resource/component/tokens.css">
+<link rel="stylesheet" href="../../base-resource/component/components.css">
+<script src="../../base-resource/js/ui.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script>tailwind.config={theme:{extend:{colors:{ink:'var(--ink)',ink80:'var(--body-strong)',ink48:'var(--muted)',canvas:'var(--canvas)',card:'var(--surface-card)',muted:'var(--surface-cream-strong)',emphasis:'var(--surface-cream-strong)',selected:'var(--surface-cream-strong)',accent:'var(--primary)','on-primary':'var(--on-primary)'}}}}</script>
+<style>
+  /* tokens · body · t-title → ../../base-resource/component/{tokens,components}.css */
+  .win{width:360px;background:var(--canvas);border:1px solid var(--hairline);border-radius:12px;box-shadow:0 8px 24px rgba(20,20,19,.10);overflow:hidden;}
+  .titlebar{height:36px;display:flex;align-items:center;gap:6px;padding:0 8px;}
+  .lights{display:flex;gap:6px;}
+  .light{width:11px;height:11px;border-radius:9999px;}
+  .tb{display:flex;gap:4px;margin-left:auto;}
+  .tbtn{width:26px;height:26px;border-radius:8px;display:grid;place-content:center;color:var(--ink);cursor:pointer;transition:background-color .15s;}
+  .tbtn:hover{background:var(--surface-soft);}
+  .tbtn.on{background:var(--surface-cream-strong);}
+  .panel{width:328px;margin:0 10px 10px auto;background:var(--canvas);border:1px solid var(--hairline);border-radius:8px;box-shadow:0 8px 24px rgba(20,20,19,.10);padding:8px;display:flex;flex-direction:column;gap:6px;}
+  /* Claude text-input: canvas + hairline; focus = coral border + 3px coral 15% ring */
+  .qrow{display:flex;align-items:center;gap:8px;background:var(--canvas);border:1px solid var(--hairline);border-radius:8px;padding:8px 10px;transition:border-color .15s,box-shadow .15s;}
+  .qrow:focus-within{border-color:var(--primary);box-shadow:0 0 0 3px rgba(204,120,92,.15);}
+  .qrow .si{color:var(--muted-soft);flex:0 0 auto;}
+  .qinp{flex:1;background:transparent;border:none;outline:none;font-size:14px;color:var(--ink);}
+  .qinp::placeholder{color:var(--muted-soft);}
+  .qrow .x{color:var(--muted-soft);cursor:pointer;flex:0 0 auto;width:18px;height:18px;display:grid;place-content:center;border-radius:5px;}
+  .qrow .x:hover{background:var(--surface-soft);color:var(--ink);}
+  .results{display:flex;flex-direction:column;gap:2px;max-height:300px;overflow:auto;}
+  .r{display:flex;align-items:center;padding:7px 10px;border-radius:6px;cursor:pointer;transition:background-color .12s;}
+  .r:hover,.r.sel{background:var(--surface-cream-strong);}
+  .r .t{font-size:13px;font-weight:600;color:var(--ink);}
+  mark{background:rgba(204,120,92,.18);color:var(--primary);border-radius:3px;padding:0 2px;}
+  .loading{display:flex;align-items:center;justify-content:center;gap:8px;padding:20px;color:var(--muted);font-size:12px;}
+  .spin{width:13px;height:13px;border:2px solid var(--surface-cream-strong);border-top-color:var(--muted-soft);border-radius:9999px;animation:sp .7s linear infinite;}
+  @keyframes sp{to{transform:rotate(360deg);}}
+  .empty{display:flex;gap:14px;align-items:center;justify-content:center;padding:28px;}
+  .empty i{width:7px;height:7px;border-radius:9999px;background:var(--muted-soft);opacity:.22;}
+  .qh{padding:18px 10px;text-align:center;font-size:12px;color:var(--muted);}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--surface-dark);color:var(--on-dark);font-size:13px;padding:10px 18px;border-radius:8px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:60;}
+  .toast.show{opacity:1;}
+  .hint{font-size:11px;color:var(--muted);text-align:center;max-width:680px;}
+</style>
+</head>
+<body class="min-h-screen m-0 p-10 flex flex-col items-center" style="background:#f5f0e8;">
+  <div class="t-title text-[24px] text-[var(--ink)] mb-1">搜索 · 右上角下拉</div>
+
+
+  <div class="win">
+    <div class="titlebar">
+      <div class="lights"><span class="light" style="background:#ff5f57"></span><span class="light" style="background:#febc2e"></span><span class="light" style="background:#28c840"></span></div>
+      <div class="tb"><div class="tbtn on" id="tbtn" title="搜索 ⌘F"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg></div></div>
+    </div>
+    <div class="panel" id="panel">
+      <div class="qrow"><svg class="si" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg><input class="qinp" id="qinp" placeholder="搜索卡片…" autocomplete="off"><span class="x" id="x"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg></span></div>
+      <div class="results" id="results"></div>
+    </div>
+  </div>
+
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+  const CARDS=[
+    {t:"Tauri v2 窗口 vibrancy",s:"macOS vibrancy + NSHUDWindowMaterial 兼容配置。"},
+    {t:"macOS HIG 三原则",s:"Clarity / Deference / Depth;内容优先、UI 克制。"},
+    {t:"Wikilink 解析 [path|relation]",s:"正则提取 path 与 relation;断链虚线+创建入口。"},
+    {t:"SF Pro 字体回退栈",s:"-apple-system 在 macOS 解析为真 SF Pro;跨平台用 Inter 近似。"},
+    {t:"React Server Components 速记",s:"RSC 服务端渲染、不 hydrate;边界靠 'use client'。"},
+    {t:"Tailwind v4 @theme 令牌",s:"@theme 定义 --color-* 即生成工具类,替代 config。"},
+    {t:"知识图谱 force-directed 布局",s:"节点按 degree 缩放;边有向(A→B)。"},
+    {t:"极简设计:去分隔线",s:"表面色反差 + 间隙分层,不用 hairline。"},
+  ];
+  const panel=document.getElementById("panel"),qinp=document.getElementById("qinp"),results=document.getElementById("results"),tbtn=document.getElementById("tbtn"),xBtn=document.getElementById("x");
+  let sel=0,resultsData=[],timer=null;
+  /* esc → base-resource/js/ui.js */
+  function hl(text,q){ if(!q)return esc(text); const i=text.toLowerCase().indexOf(q.toLowerCase()); if(i<0)return esc(text); return esc(text.slice(0,i))+"<mark>"+esc(text.slice(i,i+q.length))+"</mark>"+esc(text.slice(i+q.length)); }
+  function searchCards(q){ const ql=q.toLowerCase().trim(); if(!ql)return []; return CARDS.filter(c=>c.t.toLowerCase().includes(ql)||c.s.toLowerCase().includes(ql)).slice(0,8); }
+  function renderResults(){ if(!resultsData.length){ results.innerHTML='<div class="empty"><i></i><i></i><i></i></div>'; return; } results.innerHTML=resultsData.map((c,i)=>'<div class="r'+(i===sel?" sel":"")+'"><span class="t">'+hl(c.t,qinp.value.trim())+'</span></div>').join(""); }
+  function showLoading(){ results.innerHTML='<div class="loading"><span class="spin"></span>搜索中…</div>'; }
+  function showHint(){ results.innerHTML='<div class="qh">输入关键词搜索卡片…</div>'; }
+  function runSearch(q){ showLoading(); clearTimeout(timer); timer=setTimeout(()=>{ resultsData=searchCards(q); sel=0; renderResults(); },120); }
+  qinp.addEventListener("input",()=>{ const q=qinp.value.trim(); if(!q){showHint();resultsData=[];clearTimeout(timer);return;} runSearch(q); });
+  results.addEventListener("mouseover",e=>{ const r=e.target.closest(".r"); if(!r)return; const i=[...results.children].indexOf(r); if(i>=0&&i<resultsData.length){sel=i;[...results.children].forEach((c,j)=>c.classList.toggle("sel",j===sel));} });
+  results.addEventListener("click",e=>{ const r=e.target.closest(".r"); if(r) openCard(); });
+  qinp.addEventListener("keydown",e=>{ if(e.key==="Escape"){closePanel();return;} if(!resultsData.length)return; if(e.key==="ArrowDown"){e.preventDefault();sel=(sel+1)%resultsData.length;renderResults();} else if(e.key==="ArrowUp"){e.preventDefault();sel=(sel-1+resultsData.length)%resultsData.length;renderResults();} else if(e.key==="Enter"){e.preventDefault();openCard();} });
+  document.addEventListener("keydown",e=>{ if(e.key==="Escape"&&document.activeElement!==qinp) closePanel(); });
+  xBtn.addEventListener("click",closePanel);
+  tbtn.addEventListener("click",()=>{ if(panel.style.display==="none") openPanel(); else qinp.focus(); });
+  function openCard(){ const c=resultsData[sel]; if(!c)return; toast("打开「"+c.t+"」→ 详情"); }
+  function openPanel(){ panel.style.display="flex"; tbtn.classList.add("on"); qinp.value=""; resultsData=[]; showHint(); setTimeout(()=>qinp.focus(),50); }
+  function closePanel(){ panel.style.display="none"; tbtn.classList.remove("on"); }
+  /* toast → base-resource/js/ui.js */
+  showHint();
+  setTimeout(()=>qinp.focus(),100);
+  </script>
+</body>
+</html>
