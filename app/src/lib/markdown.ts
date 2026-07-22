@@ -39,7 +39,7 @@ export function render(md: string, resolve?: (path: string) => boolean): string 
     .map((part) => {
       if (/^```[\s\S]*```$/.test(part)) {
         const inner = part.replace(/^```\w*\n?/, "").replace(/```$/, "");
-        return "<pre>" + esc(inner) + "</pre>";
+        return '<pre class="md-pre"><code>' + esc(inner) + "</code></pre>";
       }
       let h = esc(part);
       /* 先抽出 inline code 为占位符:文档中字面值 `[path|rel]` 不应被解析为链接 */
@@ -48,30 +48,31 @@ export function render(md: string, resolve?: (path: string) => boolean): string 
         codes.push(c);
         return "\u0000" + (codes.length - 1) + "\u0000";
       });
-      h = h.replace(/^### (.*)$/gm, "<h3>$1</h3>");
-      h = h.replace(/^## (.*)$/gm, "<h2>$1</h2>");
+      h = h.replace(/^### (.*)$/gm, '<h3 class="md-h">$1</h3>');
+      h = h.replace(/^## (.*)$/gm, '<h2 class="md-h">$1</h2>');
       h = h.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+      /* wikilink → 珊瑚 chip,关系内联显示;断链弱化 */
       h = h.replace(WL_RE, (_m, p: string, r?: string) => {
         const path = ".knowledges/" + p;
         const broken = resolve ? !resolve(path) : false;
+        const rel = (r || "").trim();
         return (
-          '<a class="wl' +
+          '<a class="md-link' +
           (broken ? " broken" : "") +
           '" data-path="' +
           esc(path) +
-          '" data-rel="' +
-          esc((r || "链接").trim()) +
           '">' +
           esc(nameOf(p)) +
+          (rel && !broken ? '<span class="md-rel">' + esc(rel) + "</span>" : "") +
           "</a>"
         );
       });
       h = h.replace(/^[-*] (.*)$/gm, "<li>$1</li>");
       h = h.replace(/((?:<li>.*<\/li>\n?)+)/g, "<ul>$1</ul>");
-      h = h.replace(/\u0000(\d+)\u0000/g, (_m, i: string) => "<code>" + codes[Number(i)] + "</code>");
+      h = h.replace(/\u0000(\d+)\u0000/g, (_m, i: string) => '<code class="md-ic">' + codes[Number(i)] + "</code>");
       h = h
         .split(/\n{2,}/)
-        .map((b) => (/^\s*<(h2|h3|ul|pre)/.test(b) ? b : "<p>" + b.replace(/\n/g, "<br>") + "</p>"))
+        .map((b) => (/^\s*<(h2|h3|ul|pre)/.test(b) ? b : '<p class="md-p">' + b.replace(/\n/g, "<br>") + "</p>"))
         .join("\n");
       return h;
     })

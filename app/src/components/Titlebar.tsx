@@ -24,7 +24,7 @@ export default function Titlebar() {
           className="btn btn-primary btn-icon"
           style={{ width: 32, height: 32 }}
           title="新建卡片 ⌘N"
-          onClick={() => api.openSheet({ kind: "new" })}
+          onClick={() => api.openEditor(null)}
         >
           <Plus size={15} strokeWidth={2} />
         </button>

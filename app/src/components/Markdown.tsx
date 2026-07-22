@@ -12,7 +12,7 @@ export default function Markdown({ md }: { md: string }) {
   const html = useMemo(() => render(md, (p) => paths.has(p)), [md, paths]);
 
   function onClick(e: MouseEvent) {
-    const a = (e.target as HTMLElement).closest("a.wl") as HTMLAnchorElement | null;
+    const a = (e.target as HTMLElement).closest("a.md-link") as HTMLAnchorElement | null;
     if (!a) return;
     e.preventDefault();
     const path = a.dataset.path;

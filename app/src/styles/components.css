@@ -37,7 +37,7 @@
 .btn-secondary-on-dark{background:var(--surface-dark-elevated);color:var(--on-dark);border-color:var(--surface-dark-elevated);}
 .btn-secondary-on-dark:hover{background:#2f2c28;}
 .btn-ghost{background:transparent;color:var(--ink);border-color:transparent;}
-.btn-ghost:hover{background:var(--surface-soft);}
+.btn-ghost:hover{background:var(--hover);}
 .btn-ghost.muted{color:var(--muted);}
 .btn-text-link{background:transparent;color:var(--ink);border:none;padding:0;height:auto;}
 .btn-text-link:hover{color:var(--primary);}
@@ -45,22 +45,24 @@
 .btn-icon-sm{width:30px;height:30px;padding:0;border-radius:var(--r-sm);}  /* compact icon */
 /* toolbar ghost icon (28px, app titlebar) */
 .tb{display:grid;place-content:center;width:28px;height:28px;border-radius:var(--r-md);color:var(--ink);cursor:pointer;transition:background-color .15s;}
-.tb:hover{background:var(--surface-soft);}
+.tb:hover{background:var(--hover);}
 
 /* ---------- inputs (canvas + hairline; focus = coral + ring) ---------- */
 .text-input{width:100%;background:var(--canvas);color:var(--ink);border:1px solid var(--hairline);border-radius:var(--r-md);padding:10px 14px;font-family:var(--sans);font-size:14px;outline:none;transition:border-color .15s,box-shadow .15s;}
 .text-input::placeholder{color:var(--muted-soft);}
 .text-input:focus{border-color:var(--primary);box-shadow:var(--ring-coral);}
 .textarea{resize:vertical;line-height:1.6;}
-/* title input = serif display, transparent, hairline underline → coral on focus */
-.title-input{font-family:var(--serif);font-size:28px;font-weight:400;letter-spacing:-0.3px;color:var(--ink);background:transparent;border:none;outline:none;width:100%;border-bottom:1px solid var(--hairline-soft);padding-bottom:6px;transition:border-color .15s;}
+/* title input = 与读态标题同一规格(21px serif 600 / lh1.25);边线默认透明,聚焦才显珊瑚(读↔写版式逐像素一致) */
+.title-input{font-family:var(--serif);font-size:21px;font-weight:600;letter-spacing:-0.2px;line-height:1.25;color:var(--ink);background:transparent;border:none;outline:none;width:100%;border-bottom:1px solid transparent;padding-bottom:0;transition:border-color .15s;}
+.title-input:focus{border-bottom-color:var(--primary);}
 .title-input::placeholder{color:var(--muted-soft);}
 .title-input:focus{border-bottom-color:var(--primary);}
 
 /* ---------- cards / surfaces ---------- */
-/* KB card: canvas on surface-card desk; hover/selected = cream-strong + hairline (no lift, no shadow) */
-.card{position:relative;background:var(--canvas);border-radius:var(--r-md);padding:14px;cursor:pointer;box-shadow:0 0 0 1px transparent;transition:background-color .15s,box-shadow .15s;}
-.card:hover,.card.selected{background:var(--surface-cream-strong);box-shadow:0 0 0 1px var(--hairline);}
+/* KB card: --card 配角亮度浮于 --panel;hover/sel 两档专用色 + hairline-strong(无浮起) */
+.card{position:relative;background:var(--card);border-radius:var(--r-md);padding:14px;cursor:pointer;box-shadow:0 0 0 1px var(--hairline);transition:background-color .15s,box-shadow .15s;}
+.card:hover{background:var(--card-hover);box-shadow:0 0 0 1px var(--hairline-strong);}
+.card.selected{background:var(--card-sel);box-shadow:0 0 0 1px var(--hairline-strong);}
 /* generic surface card (feature/content) */
 .surface-card{background:var(--surface-card);border-radius:var(--r-lg);padding:var(--s-xl);}
 /* reading panel (canvas + hairline) */
@@ -74,24 +76,25 @@
 .code-window .lk{color:var(--primary);font-weight:600;background:rgba(204,120,92,.16);border-radius:3px;padding:0 2px;}
 
 /* code-editor — editable textarea + syntax-highlighted pre overlay (raw md source) */
-.code-editor{position:relative;background:var(--surface-dark-soft);border-radius:var(--r-md);overflow:hidden;transition:box-shadow .15s;}
-.code-editor.focus{box-shadow:inset 0 0 0 1.5px var(--primary),var(--ring-coral);}
-.code-editor pre,.code-editor textarea{position:absolute;inset:0;margin:0;padding:14px 16px;font-family:var(--mono);font-size:14px;line-height:1.7;white-space:pre-wrap;word-break:break-word;border-radius:var(--r-md);overflow:auto;}
+.code-editor{position:relative;background:var(--surface-dark);border-radius:10px;overflow:hidden;transition:box-shadow .15s;}
+.code-editor.focus{box-shadow:0 0 0 2px rgba(204,120,92,.45);}
+.code-editor pre,.code-editor textarea{position:absolute;inset:0;margin:0;padding:14px 16px;font-family:var(--mono);font-size:12.5px;line-height:1.75;white-space:pre-wrap;word-break:break-word;border-radius:10px;overflow:auto;}
 .code-editor pre{color:var(--on-dark-soft);pointer-events:none;}
-.code-editor textarea{color:transparent;caret-color:var(--on-dark);background:transparent;resize:none;outline:none;border:none;}
-.code-editor .h{color:var(--on-dark);font-weight:700;}      /* heading */
-.code-editor .ic{color:var(--accent-amber);}               /* inline code */
-.code-editor .lk{color:var(--primary);font-weight:600;background:rgba(204,120,92,.16);border-radius:3px;padding:0 2px;} /* wikilink */
-.code-editor .lm{color:var(--on-dark-soft);}               /* list marker */
-.code-editor .cb{color:var(--on-dark-soft);}              /* code fence */
+.code-editor textarea{color:transparent;caret-color:var(--primary);background:transparent;resize:none;outline:none;border:none;}
+.code-editor textarea::selection{background:rgba(204,120,92,.28);}
+.code-editor .h{color:#e8c9a0;}                            /* heading */
+.code-editor .ic{background:#3a3835;border-radius:3px;padding:0 4px;color:#e8c9a0;} /* inline code */
+.code-editor .lk{color:#f3cdbf;font-weight:600;background:rgba(204,120,92,.30);border-radius:3px;padding:0 2px;-webkit-box-decoration-break:clone;box-decoration-break:clone;} /* wikilink */
+.code-editor .lm{color:#9a978f;}                          /* list marker */
+.code-editor .cb{color:#6c6a64;}                          /* code fence */
 
 /* ---------- sidebar nav entry (color-block depth, no transforms) ---------- */
 .entry{display:flex;align-items:center;gap:8px;height:28px;padding:0 8px;border-radius:var(--r-sm);font-size:13px;cursor:pointer;transition:background-color .2s,color .2s;}
 .entry .dot{width:6px;height:6px;border-radius:var(--r-pill);flex:0 0 auto;transition:background-color .2s;}
-.entry.active{background:var(--surface-cream-strong);color:var(--ink);font-weight:500;}
+.entry.active{background:var(--selected);color:var(--ink);font-weight:500;}
 .entry.active .dot{background:var(--primary);}
 .entry:not(.active){color:var(--body-strong);}
-.entry:not(.active):hover{background:var(--surface-soft);}
+.entry:not(.active):hover{background:var(--hover);}
 .entry:not(.active) .dot{background:var(--muted-soft);}
 .entry.focused{box-shadow:inset 0 0 0 2px var(--primary);}   /* keyboard focus */
 
@@ -129,7 +132,7 @@
 .overlay.show{visibility:visible;opacity:1;pointer-events:auto;}
 .sheet{background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-lg);box-shadow:var(--shadow-modal);padding:28px;display:none;flex-direction:column;gap:18px;transform:translateY(-24px);opacity:0;transition:transform .2s ease,opacity .2s ease;}
 .overlay.show .sheet{transform:translateY(0);opacity:1;}
-.sheet-title{font-family:var(--serif);font-size:22px;font-weight:500;letter-spacing:-0.2px;color:var(--ink);}
+.sheet-title{font-family:var(--serif);font-size:21px;font-weight:600;letter-spacing:-0.2px;color:var(--ink);}
 /* popover = floating canvas card */
 .popover{position:fixed;background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-md);box-shadow:var(--shadow-float);padding:20px;z-index:50;}
 

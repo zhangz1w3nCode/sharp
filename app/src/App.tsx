@@ -7,7 +7,6 @@ import Toast from "./components/Toast";
 import SearchPalette from "./components/SearchPalette";
 import Sheets from "./components/Sheets";
 import { KbMain, DetailPanel } from "./views/KbView";
-import EditorView from "./views/EditorView";
 import ReviewView from "./views/ReviewView";
 import GraphView from "./views/GraphView";
 
@@ -25,7 +24,7 @@ function Shell() {
         api.setSearch(!state.searchOpen);
       } else if (mod && e.key.toLowerCase() === "n") {
         e.preventDefault();
-        api.openSheet({ kind: "new" });
+        api.openEditor(null);
       } else if (mod && e.key.toLowerCase() === "b") {
         e.preventDefault();
         api.toggleSidebar();
@@ -55,19 +54,13 @@ function Shell() {
       <div className="app-body">
         <Sidebar ref={sideRef} />
         {!state.sidebarCollapsed && <Resizer pane={sideRef} min={180} max={380} />}
-        {state.editor ? (
-          <EditorView key={state.editor.cardId ?? "new"} />
-        ) : (
+        {state.view === "kb" && <KbMain />}
+        {state.view === "review" && <ReviewView />}
+        {state.view === "graph" && <GraphView />}
+        {state.view === "kb" && (
           <>
-            {state.view === "kb" && <KbMain />}
-            {state.view === "review" && <ReviewView />}
-            {state.view === "graph" && <GraphView />}
-            {state.view === "kb" && (
-              <>
-                {state.detailOpen && <Resizer pane={detailRef} min={300} max={520} />}
-                <DetailPanel ref={detailRef} />
-              </>
-            )}
+            {state.detailOpen && <Resizer pane={detailRef} min={300} max={560} />}
+            <DetailPanel ref={detailRef} />
           </>
         )}
       </div>

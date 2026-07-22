@@ -8,7 +8,7 @@ import { pathFor, uid } from "./derive";
 import { mockCards, mockQueue } from "../data/mock";
 
 export type View = "kb" | "review" | "graph";
-export type SheetState = { kind: "new" } | { kind: "settings" } | { kind: "broken"; path: string } | null;
+export type SheetState = { kind: "settings" } | { kind: "broken"; path: string } | null;
 
 export interface EditorState {
   cardId: string | null; // null = 新建
@@ -97,7 +97,8 @@ function reducer(s: State, a: Action): State {
     case "view":
       return { ...s, view: a.view };
     case "select":
-      return { ...s, selectedId: a.id, detailOpen: a.id !== null };
+      /* 选中其他卡片 = 退出编辑(同 Esc),保证网格选中与详情内容永远一致 */
+      return { ...s, selectedId: a.id, detailOpen: a.id !== null, editor: null };
     case "toggleStar":
       return { ...s, cards: s.cards.map((c) => (c.id === a.id ? { ...c, starred: !c.starred } : c)) };
     case "toggleSidebar":
@@ -107,7 +108,16 @@ function reducer(s: State, a: Action): State {
     case "sheet":
       return { ...s, sheet: a.sheet };
     case "editor":
-      return { ...s, editor: a.editor };
+      /* 编辑器收拢进详情面板:打开时跳到知识库并展开面板;草稿清空选中 */
+      if (a.editor)
+        return {
+          ...s,
+          editor: a.editor,
+          view: "kb",
+          detailOpen: true,
+          selectedId: a.editor.cardId ?? null,
+        };
+      return { ...s, editor: null };
     case "toast":
       return { ...s, toast: { msg: a.msg, key: Date.now() } };
     case "enqueue":
@@ -201,7 +211,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (cardId === null) {
           dispatch({
             type: "editor",
-            editor: { cardId: null, path: "", title: "", summary: "", body: "## 标题\n\n正文,输入 @ 引用其他卡片\n\n- 要点" },
+            editor: { cardId: null, path: "", title: "", summary: "", body: "## 新笔记\n\n开始书写…" },
           });
           return;
         }

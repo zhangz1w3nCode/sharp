@@ -1,26 +1,11 @@
-import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { useApp } from "../lib/store";
-import CodeEditor from "./CodeEditor";
 import { Spike } from "./Icon";
 
-/** macOS sheet(顶部滑入 + 暖色模糊背景)— 新建卡片 / 设置 / 断链创建 */
+/** macOS sheet(顶部滑入 + 暖色模糊背景)— 设置 / 断链创建(新建卡片已收拢进详情面板) */
 export default function Sheets() {
   const { state, api } = useApp();
   const sheet = state.sheet;
-
-  // 新建卡片表单
-  const [title, setTitle] = useState("");
-  const [summary, setSummary] = useState("");
-  const [body, setBody] = useState("");
-
-  useEffect(() => {
-    if (sheet?.kind === "new") {
-      setTitle("");
-      setSummary("");
-      setBody("");
-    }
-  }, [sheet]);
 
   if (!sheet) return null;
   const close = () => api.openSheet(null);
@@ -32,51 +17,6 @@ export default function Sheets() {
         if (e.target === e.currentTarget) close();
       }}
     >
-      {sheet.kind === "new" && (
-        <div className="sheet" style={{ display: "flex", width: 520 }}>
-          <div className="flex items-center gap-2">
-            <input
-              className="title-input"
-              placeholder="卡片标题"
-              value={title}
-              autoFocus
-              onChange={(e) => setTitle(e.target.value)}
-              style={{ flex: 1 }}
-            />
-            <button className="btn btn-secondary" onClick={close}>
-              取消
-            </button>
-            <button
-              className="btn btn-primary"
-              disabled={!title.trim()}
-              onClick={() => {
-                api.submitEditor({ cardId: null, path: "", title, summary, body: body || "## 标题\n\n(待补充)" });
-              }}
-            >
-              确认
-            </button>
-          </div>
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 8 }}>
-              概述
-            </div>
-            <textarea
-              className="text-input textarea"
-              rows={2}
-              placeholder="一句话概述"
-              value={summary}
-              onChange={(e) => setSummary(e.target.value)}
-            />
-          </div>
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 8 }}>
-              内容 · 输入 @ 引用
-            </div>
-            <CodeEditor value={body} onChange={setBody} height={180} placeholder={"## 标题\n正文,输入 @ 引用\n\n- 要点"} />
-          </div>
-        </div>
-      )}
-
       {sheet.kind === "settings" && (
         <div className="sheet" style={{ display: "flex" }}>
           <div className="flex items-center gap-2">

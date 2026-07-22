@@ -12,3 +12,8 @@ app/src-tauri/gen/
 # ---- 本地临时 ----
 *.local
 nohup.out
+.pi/
+be/target
+.experiences/
+.tasks/
+.timelines/

@@ -20,9 +20,20 @@
   --surface-soft:#f5f0e8;       /* desk floor, soft bands */
   --surface-card:#efe9de;       /* content cards (one step darker than canvas) */
   --surface-cream-strong:#e8e0d2; /* selected / emphasized band */
-  --surface-dark:#181715;       /* code mockups, footer */
+  --surface-dark:#2a2926;       /* code mockups, footer(暖黑,带橄榄暖意) */
   --surface-dark-elevated:#252320;/* elevated card inside dark */
-  --surface-dark-soft:#1f1e1b;  /* inner code block bg */
+  --surface-dark-soft:#232220;  /* inner code block bg */
+  /* — 明度阶梯:越深越靠后,越亮越是主角(ref: 知识库页 v2) — */
+  --panel-deep:#e8e1d3;         /* 侧栏 · 抽屉 */
+  --panel:#f1ebdf;              /* 列表区 · 中景 */
+  --card:#f7f4ed;               /* 卡片 · 配角(不用纯白,别抢详情) */
+  --paper:#fcfaf6;              /* 详情区 · 最亮的纸 */
+  --card-hover:#eee7d8;
+  --card-sel:#ece4d4;   /* 选中只比 hover 深一点点 */
+  --selected:#eee7d8;   /* 侧栏选中 = 卡片 hover 深度 */
+  --chip:#e7dfcf;
+  --hover:rgba(20,20,19,.055);  /* 在任何米色上都成立的 hover */
+  --hairline-strong:#d9d1c2;
   /* — on-color text — */
   --on-primary:#ffffff;         /* text on coral */
   --on-dark:#faf9f5;            /* cream-tinted text on dark */
@@ -36,8 +47,8 @@
   --hairline-soft:#ebe6df;      /* barely-visible in-band divider */
   --hairline-dark:#2f2c28;      /* 1px divider on dark */
   /* — type families (licensed substitutes per DESIGN.md) — */
-  --serif:'Cormorant Garamond','Tiempos Headline','Songti SC','Source Han Serif SC',Georgia,serif;
-  --sans:'StyreneB','Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,system-ui,sans-serif;
+  --serif:'Cormorant Garamond','Noto Serif SC','Songti SC','Source Han Serif SC',Georgia,serif;
+  --sans:'StyreneB','Inter','Noto Sans SC','PingFang SC',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,system-ui,sans-serif;
   --mono:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;
   /* — radius scale — */
   --r-xs:4px; --r-sm:6px; --r-md:8px; --r-lg:12px; --r-xl:16px; --r-pill:9999px;
