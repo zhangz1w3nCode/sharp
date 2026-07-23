@@ -43,10 +43,11 @@ body { background: var(--canvas); overflow: hidden; }
 
 /* ============================ 窗口框架 (shell) ============================ */
 .app { height: 100%; display: flex; flex-direction: column; background: var(--canvas); padding: 12px; }
-.titlebar { height: 44px; flex: 0 0 auto; display: flex; align-items: center; gap: 4px; padding: 0 4px; margin-bottom: 10px; user-select: none; }
+.titlebar { position: relative; height: 44px; flex: 0 0 auto; display: flex; align-items: center; gap: 4px; padding: 0 4px; margin-bottom: 10px; user-select: none; }
+.seg-center { position: absolute; left: 50%; transform: translateX(-50%); }
 .app-body { flex: 1; display: flex; min-height: 0; }
 
-/* 面板:侧栏最深(--panel-deep);内容区统一为最亮的纸(--paper),卡片浮于其上 */
+/* 面板:内容区统一为最亮的纸(--paper),卡片浮于其上 */
 .pane { background: var(--paper); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; overflow: hidden; }
 .pane.pane-side { background: var(--paper); box-shadow: 0 0 0 1px var(--hairline-soft); padding-top: 22px; }
 .pane.pane-main { box-shadow: 0 0 0 1px var(--hairline-soft); }

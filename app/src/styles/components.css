@@ -88,15 +88,11 @@
 .code-editor .lm{color:#9a978f;}                          /* list marker */
 .code-editor .cb{color:#6c6a64;}                          /* code fence */
 
-/* ---------- sidebar nav entry (color-block depth, no transforms) ---------- */
-.entry{display:flex;align-items:center;gap:8px;height:28px;padding:0 8px;border-radius:var(--r-sm);font-size:13px;cursor:pointer;transition:background-color .2s,color .2s;}
-.entry .dot{width:6px;height:6px;border-radius:var(--r-pill);flex:0 0 auto;transition:background-color .2s;}
-.entry.active{background:var(--selected);color:var(--ink);font-weight:500;}
-.entry.active .dot{background:var(--primary);}
-.entry:not(.active){color:var(--body-strong);}
-.entry:not(.active):hover{background:var(--hover);}
-.entry:not(.active) .dot{background:var(--muted-soft);}
-.entry.focused{box-shadow:inset 0 0 0 2px var(--primary);}   /* keyboard focus */
+/* ---------- segmented control (top nav; capsule container + white active pill) ---------- */
+.seg{display:inline-flex;align-items:center;gap:2px;background:var(--chip);border-radius:var(--r-pill);padding:3px;}
+.seg-item{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 14px;border-radius:var(--r-pill);font-size:13px;color:var(--muted);cursor:pointer;user-select:none;transition:background-color .2s,color .2s,box-shadow .2s;}
+.seg-item:hover{color:var(--ink);}
+.seg-item.active{background:var(--paper);color:var(--ink);font-weight:500;box-shadow:0 1px 3px rgba(20,20,19,.10),0 0 0 1px var(--hairline-soft);}
 
 /* ---------- status dot ---------- */
 .dot{width:6px;height:6px;border-radius:var(--r-pill);background:var(--primary);flex:0 0 auto;}
