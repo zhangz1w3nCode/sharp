@@ -18,3 +18,4 @@ be/target
 .tasks/
 .timelines/
 .knowledges/
+.worktrees/
