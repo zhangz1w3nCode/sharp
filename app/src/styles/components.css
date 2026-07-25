@@ -151,10 +151,20 @@
 /* ---------- brand spike-mark (Anthropic radial glyph, inline svg fill) ---------- */
 .mark{color:var(--primary);}
 
-
-
+/* ---------- file tree (sidebar · VS Code style · minimal) ---------- */
+.file-tree{flex:1;overflow:auto;padding:2px 6px 8px;user-select:none;scrollbar-width:none;}
+.file-tree::-webkit-scrollbar{display:none;}
+.tree-row{display:flex;align-items:center;gap:4px;height:26px;padding-inline-end:8px;border-radius:var(--r-xs);cursor:pointer;transition:background-color .12s;}
+.tree-row:hover{background:var(--hover);}
+.tree-row.selected{background:var(--card-sel);}
+.tree-chev{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;flex:0 0 auto;color:var(--muted-soft);}
+.tree-chev-pad{width:14px;flex:0 0 auto;}
+.tree-name{font-size:13px;color:var(--body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.tree-row.dir .tree-name{color:var(--ink);font-weight:500;}
+.tree-row.selected .tree-name{color:var(--ink);}
+.tree-loading{color:var(--muted-soft);font-size:12px;margin-left:auto;}
+.tree-empty{flex:1;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted-soft);padding:20px;text-align:center;}
 /* ---------- dashboard / 统计大盘 ---------- */
-
 .dashboard-scroll.pane,.dashboard-scroll.pane-main{overflow:auto;scrollbar-width:thin;}
 .dashboard-scroll.pane::-webkit-scrollbar,.dashboard-scroll.pane-main::-webkit-scrollbar{width:8px;height:8px;}
 .dashboard-scroll.pane::-webkit-scrollbar-thumb,.dashboard-scroll.pane-main::-webkit-scrollbar-thumb{background:var(--hairline);border-radius:4px;}
@@ -162,83 +172,38 @@
 .dashboard-header{display:flex;align-items:baseline;gap:12px;}
 .dashboard-title{font-family:var(--serif);font-size:21px;font-weight:600;color:var(--ink);letter-spacing:-0.2px;}
 .dashboard-subtitle{font-size:12px;color:var(--muted-soft);font-family:var(--sans);}
-
-
-
 /* KPI cards */
-
 .kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;}
-
 .kpi-card{background:var(--card);border:1px solid var(--hairline);border-radius:var(--r-md);padding:18px 16px;display:flex;flex-direction:column;gap:8px;}
-
 .kpi-value{font-family:var(--serif);font-size:32px;font-weight:600;color:var(--ink);line-height:1;}
-
 .kpi-label{font-size:12px;color:var(--muted);font-family:var(--sans);}
-
-
-
 /* dashboard cards */
-
 .dashboard-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;}
-
-
 .dashboard-card-title{font-family:var(--serif);font-size:16px;font-weight:600;color:var(--ink);}
-
 .dashboard-empty{font-size:13px;color:var(--muted);padding:20px 0;text-align:center;}
-
-
-
 /* charts */
-
 .dashboard-chart{width:100%;height:180px;}
-
 .chart-line{fill:none;stroke:var(--primary);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
-
 .chart-dot{fill:var(--primary);stroke:var(--card);stroke-width:2;}
-
 .chart-bar{fill:var(--primary);opacity:.85;}
-
 .chart-grid{stroke:var(--hairline);stroke-dasharray:3 3;}
-
 .chart-tick{font-size:10px;fill:var(--muted);font-family:var(--sans);}
-
 .chart-label{font-size:10px;fill:var(--muted);font-family:var(--sans);}
-
-
-
 /* heatmap */
-
 .heatmap-card{overflow:visible;}
-
 .heatmap-wrap{display:flex;flex-direction:column;gap:12px;}
-
 .heatmap{display:grid;grid-template-columns:repeat(12,1fr);grid-template-rows:repeat(7,1fr);gap:4px;}
-
 .heatmap-cell{width:100%;aspect-ratio:1/1;border-radius:3px;background:var(--primary);box-shadow:0 0 0 1px var(--hairline-soft);transition:opacity .15s;}
-
 .heatmap-cell:hover{opacity:1 !important;}
-
 .heatmap-legend{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);}
-
 .heatmap-legend-cell{width:12px;height:12px;border-radius:3px;background:var(--primary);box-shadow:0 0 0 1px var(--hairline-soft);}
-
-
-
-
 /* recent activity */
-
 .recent-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px;}
-
 .recent-item{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--hairline-soft);}
-
 .recent-item:last-child{border-bottom:none;}
-
 .recent-title{flex:1;font-family:var(--serif);font-size:14px;font-weight:500;color:var(--ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-
 .recent-subtitle{font-size:12px;color:var(--muted);width:120px;flex-shrink:0;}
-
 .recent-date{font-size:11px;color:var(--muted-soft);font-family:var(--mono);width:90px;text-align:right;flex-shrink:0;}
-
 /* overview card (heatmap row companion) */
 .overview-stats{display:flex;gap:24px;}
 .overview-stat{display:flex;flex-direction:column;gap:4px;}
@@ -247,15 +212,8 @@
 .overview-ratio{height:6px;border-radius:3px;background:var(--chip);overflow:hidden;}
 .overview-ratio-bar{height:100%;border-radius:3px;background:var(--primary);transition:width .3s ease;}
 .overview-hint{font-size:11px;color:var(--muted-soft);font-family:var(--sans);margin:0;}
-
-
-
 /* responsive */
-
 @media (max-width:900px){
-
   .kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
-
   .dashboard-row{grid-template-columns:1fr;}
-
 }

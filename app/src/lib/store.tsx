@@ -27,6 +27,8 @@ interface State {
   selectedId: string | null;
   detailOpen: boolean;
   sidebarCollapsed: boolean;
+  /** 知识库根目录名(扩展点:后续选不同项目时动态切换) */
+  kbRoot: string;
   searchOpen: boolean;
   sheet: SheetState;
   editor: EditorState | null;
@@ -86,6 +88,7 @@ function initState(): State {
     selectedId,
     detailOpen: selectedId !== null,
     sidebarCollapsed: false,
+    kbRoot: ".knowledges",
     searchOpen: false,
     sheet: null,
     editor: null,
