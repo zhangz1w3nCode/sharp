@@ -8,6 +8,7 @@ const NAV: { view: View; label: string }[] = [
   { view: "kb", label: "知识库" },
   { view: "review", label: "知识审核" },
   { view: "graph", label: "知识图谱" },
+  { view: "search", label: "搜索" },
 ];
 
 /** 无缝标题栏:居中分段导航 + 拖拽区 + 工具簇(图标优先,无文字) */

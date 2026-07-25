@@ -248,3 +248,25 @@ mark { background: rgba(204,120,92,.18); color: var(--primary); border-radius: 3
 /* 空状态 */
 .empty-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; }
 .empty-hint { font-size: 12px; color: var(--muted-soft); }
+
+/* ============================ 搜索页(独立全页搜索) ============================ */
+/* 空态:内容组 ~38-40% 光学中心(30vh 顶距);Enter 后:输入框上移至 10vh,标题收起,结果列表淡入 */
+.search-page { align-items: center; justify-content: flex-start; padding-top: 30vh; transition: padding-top .3s ease; }
+.search-page.has-results { padding-top: 10vh; }
+.search-title { font-family: var(--serif); font-size: 32px; font-weight: 600; color: var(--ink); margin-bottom: 16px; text-wrap: balance; max-height: 48px; opacity: 1; overflow: hidden; transition: opacity .2s ease, max-height .25s ease, margin .25s ease; }
+.search-page.has-results .search-title { max-height: 0; opacity: 0; margin-bottom: 0; }
+.search-field { position: relative; width: 480px; max-width: 80%; flex: 0 0 auto; }
+.search-field .search-field-icon { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.search-input { width: 100%; height: 52px; background: transparent; border: 1px solid var(--hairline); border-radius: 14px; padding: 0 16px 0 44px; font-family: var(--sans); font-size: 16px; color: var(--ink); outline: none; transition: border-color .15s, box-shadow .15s; }
+.search-input:focus { border-color: var(--primary); box-shadow: var(--ring-coral); }
+/* 结果列表:平铺行式 · hairline 分隔 · 与输入框同宽对齐 */
+.search-results { width: 480px; max-width: 80%; margin-top: 28px; flex: 1; min-height: 0; overflow: auto; scrollbar-width: none; animation: sr-in .25s ease; }
+.search-results::-webkit-scrollbar { display: none; }
+@keyframes sr-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+.sr-item { padding: 12px 8px; border-bottom: 1px solid var(--hairline-soft); cursor: pointer; transition: background-color .15s; }
+.sr-item:last-child { border-bottom: none; }
+.sr-item:hover { background: var(--hover); }
+.sr-item.sel { background: var(--card-sel); }
+.sr-t { font-family: var(--serif); font-size: 16px; font-weight: 500; color: var(--ink); line-height: 1.3; }
+.sr-s { font-size: 13px; color: var(--muted); line-height: 1.55; margin-top: 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.sr-p { font-family: var(--mono); font-size: 10px; color: var(--muted-soft); margin-top: 6px; }
