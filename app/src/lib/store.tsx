@@ -7,7 +7,7 @@ import { Card, ReviewItem } from "./types";
 import { pathFor, uid } from "./derive";
 import { mockCards, mockQueue } from "../data/mock";
 
-export type View = "kb" | "review" | "graph";
+export type View = "kb" | "review" | "graph" | "kanban";
 export type SheetState = { kind: "settings" } | { kind: "broken"; path: string } | null;
 
 export interface EditorState {
@@ -66,6 +66,7 @@ function initView(): View {
   const h = typeof location !== "undefined" ? location.hash : "";
   if (h.startsWith("#/review")) return "review";
   if (h.startsWith("#/graph")) return "graph";
+  if (h.startsWith("#/kanban")) return "kanban";
   return "kb";
 }
 
