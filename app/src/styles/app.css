@@ -54,7 +54,7 @@ body { background: var(--canvas); overflow: hidden; }
 .pane.pane-detail { background: var(--paper); box-shadow: 0 0 0 1px var(--hairline-soft); padding-top: 20px; }
 .pane-main { flex: 1; min-width: 0; }
 .pane-side { flex: 0 0 auto; width: 240px; }
-.pane-detail { flex: 0 0 auto; width: 380px; }
+.pane-detail { flex: 0 0 auto; width: max(420px, 48%); }
 .pane-side, .pane-detail { transition: width .25s ease, opacity .2s ease, padding .25s ease; }
 .pane-side.collapsed, .pane-detail.collapsed { width: 0 !important; opacity: 0; padding: 0; }
 
