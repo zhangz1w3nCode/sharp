@@ -19,3 +19,4 @@ be/target
 .timelines/
 .knowledges/
 .worktrees/
+output/
