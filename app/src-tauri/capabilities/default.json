@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "主窗口默认权限(纯前端应用,仅核心事件/窗口 API)",
   "windows": ["main"],
-  "permissions": ["core:default", "pilot:default"]
+  "permissions": ["core:default", "pilot:default", "core:window:allow-start-dragging"]
 }

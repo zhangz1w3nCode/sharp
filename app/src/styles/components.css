@@ -138,3 +138,17 @@
 
 /* ---------- brand spike-mark (Anthropic radial glyph, inline svg fill) ---------- */
 .mark{color:var(--primary);}
+
+/* ---------- file tree (sidebar · VS Code style · minimal) ---------- */
+.file-tree{flex:1;overflow:auto;padding:2px 6px 8px;user-select:none;scrollbar-width:none;}
+.file-tree::-webkit-scrollbar{display:none;}
+.tree-row{display:flex;align-items:center;gap:4px;height:26px;padding-inline-end:8px;border-radius:var(--r-xs);cursor:pointer;transition:background-color .12s;}
+.tree-row:hover{background:var(--hover);}
+.tree-row.selected{background:var(--card-sel);}
+.tree-chev{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;flex:0 0 auto;color:var(--muted-soft);}
+.tree-chev-pad{width:14px;flex:0 0 auto;}
+.tree-name{font-size:13px;color:var(--body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.tree-row.dir .tree-name{color:var(--ink);font-weight:500;}
+.tree-row.selected .tree-name{color:var(--ink);}
+.tree-loading{color:var(--muted-soft);font-size:12px;margin-left:auto;}
+.tree-empty{flex:1;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted-soft);padding:20px;text-align:center;}

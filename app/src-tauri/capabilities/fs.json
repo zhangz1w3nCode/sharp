@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "fs",
+  "description": "文件树读取 .knowledges/ 目录",
+  "windows": ["main"],
+  "permissions": [
+    "fs:allow-read-dir",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        { "path": ".knowledges" },
+        { "path": ".knowledges/**" }
+      ]
+    }
+  ]
+}
