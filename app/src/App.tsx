@@ -10,12 +10,14 @@ import { KbMain, DetailPanel } from "./views/KbView";
 import ReviewView from "./views/ReviewView";
 import GraphView from "./views/GraphView";
 
+import KanbanView from "./views/KanbanView";
+
 function Shell() {
   const { state, api } = useApp();
   const sideRef = useRef<HTMLElement>(null);
   const detailRef = useRef<HTMLElement>(null);
 
-  /* 全局快捷键:⌘K 搜索 · ⌘N 新建 · ⌘B 侧栏 · ⌘1/2/3 视图 · Esc 逐层关闭 */
+  /* 全局快捷键:⌘K 搜索 · ⌘N 新建 · ⌘B 侧栏 · ⌘1/2/3/4 视图 · Esc 逐层关闭 */
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const mod = e.metaKey || e.ctrlKey;
@@ -37,6 +39,12 @@ function Shell() {
       } else if (mod && e.key === "3") {
         e.preventDefault();
         api.setView("graph");
+      } else if (mod && e.key === "4") {
+
+        e.preventDefault();
+
+        api.setView("kanban");
+
       } else if (e.key === "Escape") {
         if (state.searchOpen) api.setSearch(false);
         else if (state.sheet) api.openSheet(null);
@@ -57,6 +65,8 @@ function Shell() {
         {state.view === "kb" && <KbMain />}
         {state.view === "review" && <ReviewView />}
         {state.view === "graph" && <GraphView />}
+
+        {state.view === "kanban" && <KanbanView />}
         {state.view === "kb" && (
           <>
             {state.detailOpen && <Resizer pane={detailRef} min={300} max={1100} />}
