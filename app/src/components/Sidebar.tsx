@@ -7,7 +7,7 @@ const Sidebar = forwardRef<HTMLElement>(function Sidebar(_props, ref) {
   const { state } = useApp();
   return (
     <aside ref={ref} className={`pane pane-side${state.sidebarCollapsed ? " collapsed" : ""}`}>
-      <FileTree />
+      {state.view === "kb" && <FileTree />}
     </aside>
   );
 });
