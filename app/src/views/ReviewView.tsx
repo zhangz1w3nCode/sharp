@@ -3,6 +3,7 @@ import { Check, Pencil, ArrowLeft } from "lucide-react";
 import { useApp } from "../lib/store";
 import { diffLines } from "../lib/diff";
 import EmptyDots from "../components/EmptyDots";
+import { useFade } from "../lib/useFade";
 
 /**
  * 知识审核 · 点击卡片即看 diff(GitHub 式双栏)
@@ -12,6 +13,7 @@ export default function ReviewView() {
   const { state, api } = useApp();
   const [diffId, setDiffId] = useState<string | null>(null);
   const [leaving, setLeaving] = useState(false);
+  const gridRef = useFade<HTMLDivElement>([state.queue.length]);
 
   const item = useMemo(() => state.queue.find((q) => q.id === diffId) ?? null, [state.queue, diffId]);
   const rows = useMemo(() => (item ? diffLines(item.current ?? "", item.body) : []), [item]);
@@ -85,12 +87,12 @@ export default function ReviewView() {
       {state.queue.length === 0 ? (
         <EmptyDots hint="队列已清空" />
       ) : (
-        <div className="rv-list">
+        <div className="card-grid fade-scroll" ref={gridRef}>
           {state.queue.map((it) => (
-            <div key={it.id} className="rv-item" onClick={() => setDiffId(it.id)}>
-              <div className="rv-t">{it.title}</div>
-              <div className="rv-s">{it.snippet}</div>
-              <div className="rv-row2">
+            <div key={it.id} className="card" onClick={() => setDiffId(it.id)}>
+              <div className="t">{it.title}</div>
+              <div className="s">{it.snippet}</div>
+              <div className="foot">
                 <span className="badge">{it.source}</span>
               </div>
             </div>

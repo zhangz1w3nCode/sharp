@@ -144,25 +144,6 @@ input:focus-visible, textarea:focus-visible { outline: none; }
 .ac-input { flex: 1; border: 1px solid var(--hairline); border-radius: 6px; padding: 7px 10px; font-size: 13px; outline: none; background: var(--canvas); color: var(--ink); transition: border-color .15s, box-shadow .15s; }
 .ac-input:focus { border-color: var(--primary); box-shadow: var(--ring-coral); }
 
-/* ============================ 审核队列 ============================ */
-.rv-list { flex: 1; display: flex; flex-direction: column; gap: 10px; overflow: auto; padding: 12px 2px 2px; }
-.rv-item { position: relative; border-radius: 8px; padding: 14px; background: var(--card); display: flex; flex-direction: column; gap: 7px; cursor: pointer; transition: background-color .18s ease, box-shadow .18s ease, opacity .3s ease; box-shadow: 0 0 0 1px var(--hairline); }
-.rv-item:hover { background: var(--card-hover); box-shadow: 0 0 0 1px var(--hairline-strong); }
-.rv-item.sel { background: var(--card-sel); box-shadow: 0 0 0 1px var(--hairline-strong); }
-.rv-item.leaving { opacity: 0; }
-.rv-row1 { display: flex; align-items: center; gap: 8px; }
-.rv-t { font-family: var(--serif); font-size: 16px; font-weight: 500; color: var(--ink); line-height: 1.3; flex: 1; text-wrap: balance; }
-.rv-chev { color: var(--muted-soft); transition: transform .2s ease; display: inline-flex; cursor: pointer; flex: 0 0 auto; }
-.rv-item.open .rv-chev { transform: rotate(180deg); }
-.rv-status { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); flex: 0 0 auto; }
-.rv-s { font-size: 12px; color: var(--muted); line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.rv-row2 { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); flex-wrap: wrap; }
-.rv-tag { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--muted); }
-.rv-acts { margin-left: auto; display: flex; align-items: center; gap: 6px; }
-.rv-full { display: none; font-size: 13px; color: var(--body); line-height: 1.7; background: var(--surface-cream-strong); border-radius: 6px; padding: 12px 14px; margin-top: 4px; }
-.rv-item.open .rv-full { display: block; }
-.rv-full .h { font-family: var(--serif); font-weight: 500; font-size: 15px; color: var(--ink); margin-bottom: 4px; }
-
 /* diff(暗色 code-window + 语义增删色) */
 .diff-headers { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; margin-bottom: 8px; }
 .diff-col-h { font-size: 11px; color: var(--muted-soft); font-weight: 500; letter-spacing: 1.5px; text-transform: uppercase; display: flex; align-items: center; gap: 6px; padding: 2px 4px; }
