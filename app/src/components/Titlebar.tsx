@@ -1,4 +1,4 @@
-import { PanelLeft, Search, Settings, Plus } from "lucide-react";
+import { PanelLeft, Settings, Plus } from "lucide-react";
 import { useApp, View } from "../lib/store";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -31,9 +31,6 @@ export default function Titlebar() {
         <button className="tb" title="折叠侧栏 ⌘B" onClick={() => api.toggleSidebar()}>
           <PanelLeft size={16} strokeWidth={1.6} />
         </button>
-        <button className="tb" title="搜索 ⌘K" onClick={() => api.setSearch(true)}>
-          <Search size={16} strokeWidth={1.6} />
-        </button>
         <button className="tb" title="设置" onClick={() => api.openSheet({ kind: "settings" })}>
           <Settings size={16} strokeWidth={1.6} />
         </button>
@@ -41,7 +38,7 @@ export default function Titlebar() {
           className="btn btn-primary btn-icon"
           style={{ width: 32, height: 32 }}
           title="新建卡片 ⌘N"
-          onClick={() => api.openEditor(null)}
+          onClick={() => api.openEditor(null, true)}
         >
           <Plus size={15} strokeWidth={2} />
         </button>

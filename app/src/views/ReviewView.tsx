@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Check, Pencil, ArrowLeft } from "lucide-react";
 import { useApp } from "../lib/store";
 import { diffLines } from "../lib/diff";
+import { DetailEdit } from "./KbView";
 import EmptyDots from "../components/EmptyDots";
 
 /**
@@ -24,6 +25,14 @@ export default function ReviewView() {
       setLeaving(false);
       setDiffId(null);
     }, 300);
+  }
+  /* ---------- 编辑模式:复用 DetailEdit,留在当前页面(keepView) ---------- */
+  if (state.editor) {
+    return (
+      <main className="pane pane-main search-detail">
+        <DetailEdit key={state.editor.cardId ?? "new-" + (state.editor.originReviewId ?? "")} />
+      </main>
+    );
   }
   /* ---------- diff 页(update:左右对照 · new:左空右全绿) ---------- */
   if (item) {

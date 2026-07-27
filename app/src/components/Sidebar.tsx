@@ -1,13 +1,26 @@
 import { forwardRef } from "react";
 import { useApp } from "../lib/store";
+import FileTree from "./FileTree";
 
-/** 侧栏 — 页面级操作区,内容待定,当前留空 */
+/** 侧栏 — 文件树全局索引 */
 const Sidebar = forwardRef<HTMLElement>(function Sidebar(_props, ref) {
-  const { state } = useApp();
-  /* 搜索视图强制折叠(不动 sidebarCollapsed 持久态,切回其他视图自动恢复) */
-  const collapsed = state.sidebarCollapsed || state.view === "search";
+  const { state, api } = useApp();
+  const searchDetailCard = state.cards.find((c) => c.id === state.searchDetailId) ?? null;
   return (
-    <aside ref={ref} className={`pane pane-side${collapsed ? " collapsed" : ""}`} />
+    <aside ref={ref} className={`pane pane-side${state.sidebarCollapsed ? " collapsed" : ""}`}>
+      {state.view === "kb" && <FileTree key="kb" />}
+      {state.view === "search" && (
+        <FileTree
+          key="search"
+          selectedPath={searchDetailCard?.path ?? null}
+          onOpenFile={(path) => {
+            const c = state.cards.find((x) => x.path === path);
+            if (c) api.setSearchDetail(c.id);
+            else api.openSheet({ kind: "broken", path });
+          }}
+        />
+      )}
+    </aside>
   );
 });
 

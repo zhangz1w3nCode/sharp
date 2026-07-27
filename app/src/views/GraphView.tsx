@@ -360,7 +360,13 @@ export default function GraphView() {
     }
     const n = data.nodes[i];
     if (!n) return;
-    api.openCardByPath(n.id);
+    const c = state.cards.find((x) => x.path === n.id);
+    if (c) {
+      api.setView("search");
+      api.setSearchDetail(c.id);
+    } else {
+      api.openSheet({ kind: "broken", path: n.id });
+    }
   }
 
   function slider(label: string, min: number, max: number, init: number, fn: (v: number) => void) {

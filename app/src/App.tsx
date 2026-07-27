@@ -4,7 +4,6 @@ import Titlebar from "./components/Titlebar";
 import Sidebar from "./components/Sidebar";
 import Resizer from "./components/Resizer";
 import Toast from "./components/Toast";
-import SearchPalette from "./components/SearchPalette";
 import Sheets from "./components/Sheets";
 import { KbMain, DetailPanel } from "./views/KbView";
 import ReviewView from "./views/ReviewView";
@@ -16,16 +15,13 @@ function Shell() {
   const sideRef = useRef<HTMLElement>(null);
   const detailRef = useRef<HTMLElement>(null);
 
-  /* 全局快捷键:⌘K 搜索 · ⌘N 新建 · ⌘B 侧栏 · ⌘1/2/3/4 视图 · Esc 逐层关闭 */
+  /* 全局快捷键:⌘N 新建 · ⌘B 侧栏 · ⌘1/2/3/4 视图 · Esc 逐层关闭 */
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const mod = e.metaKey || e.ctrlKey;
-      if (mod && e.key.toLowerCase() === "k") {
+      if (mod && e.key.toLowerCase() === "n") {
         e.preventDefault();
-        api.setSearch(!state.searchOpen);
-      } else if (mod && e.key.toLowerCase() === "n") {
-        e.preventDefault();
-        api.openEditor(null);
+        api.openEditor(null, true);
       } else if (mod && e.key.toLowerCase() === "b") {
         e.preventDefault();
         api.toggleSidebar();
@@ -42,7 +38,7 @@ function Shell() {
         e.preventDefault();
         api.setView("search");
       } else if (e.key === "Escape") {
-        if (state.searchOpen) api.setSearch(false);
+        if (state.sheet) api.openSheet(null);
         else if (state.sheet) api.openSheet(null);
         else if (state.editor) api.closeEditor();
         else if (state.detailOpen) api.selectCard(null);
@@ -57,19 +53,18 @@ function Shell() {
       <Titlebar />
       <div className="app-body">
         <Sidebar ref={sideRef} />
-        {state.view !== "search" && !state.sidebarCollapsed && <Resizer pane={sideRef} min={180} max={380} />}
+        {!state.sidebarCollapsed && <Resizer pane={sideRef} min={180} max={380} />}
         {state.view === "kb" && <KbMain />}
         {state.view === "review" && <ReviewView />}
         {state.view === "graph" && <GraphView />}
         {state.view === "search" && <SearchView />}
-        {(state.view === "kb" || state.view === "search") && (
+        {state.view === "kb" && (
           <>
             {state.detailOpen && <Resizer pane={detailRef} min={300} max={560} />}
             <DetailPanel ref={detailRef} />
           </>
         )}
       </div>
-      <SearchPalette />
       <Sheets />
       <Toast />
     </div>
