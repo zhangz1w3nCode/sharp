@@ -2,7 +2,7 @@
 
 use serde_json::{json, Value};
 
-pub(crate) fn output_json(data: &Value) {
+pub fn output_json(data: &Value) {
     match serde_json::to_string_pretty(data) {
         Ok(s) => println!("{s}"),
         Err(e) => {
@@ -18,7 +18,7 @@ pub(crate) fn output_json(data: &Value) {
     }
 }
 
-pub(crate) fn error_json(msg: &str) -> i32 {
+pub fn error_json(msg: &str) -> i32 {
     output_json(&json!({"error": msg}));
     1
 }

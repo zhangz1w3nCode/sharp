@@ -9,19 +9,11 @@ use std::path::Path;
 use clap::{Parser, Subcommand};
 use serde_json::{json, Value};
 
-mod commands;
-mod db;
-mod error;
-mod graph;
-mod graph_petgraph;
-mod index;
-mod parser;
-mod util;
 
-use commands::{health, search, write};
-use db::IndexDb;
-use error::KbError;
-use util::{error_json, output_json};
+use akb_core::commands::{health, search, write};
+use akb_core::db::IndexDb;
+use akb_core::error::KbError;
+use akb_core::util::{error_json, output_json};
 
 #[derive(Parser)]
 #[command(name = "kb", about = "knowledge-base CLI: 确定性文件级/图级操作")]

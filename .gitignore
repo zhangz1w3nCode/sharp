@@ -1,19 +1,18 @@
 # ---- macOS ----
 .DS_Store
 
-# ---- app: 前端 ----
-app/node_modules/
-app/dist/
+# ---- akb-tauri: 前端 ----
+crates/akb-tauri/node_modules/
+crates/akb-tauri/dist/
 
-# ---- app: Tauri / Rust(3GB+ 构建产物) ----
-app/src-tauri/target/
-app/src-tauri/gen/
+# ---- Rust workspace 构建产物 ----
+target/
+crates/akb-tauri/src-tauri/gen/
 
 # ---- 本地临时 ----
 *.local
 nohup.out
 .pi/
-be/target
 .experiences/
 .tasks/
 .timelines/
