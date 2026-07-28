@@ -889,7 +889,7 @@ mod tests {
             None,
             vec![],
             "content",
-        );
+        ).unwrap();
         // 再次添加同文档
         let result = cmd_add(
             &mut db,
@@ -992,7 +992,7 @@ mod tests {
             None,
             vec![],
             "a content",
-        );
+        ).unwrap();
         // batch 中 a.md 已存在(会失败),b.md 会成功
         let json = r#"[
             {"doc_path":"zoloz/a.md","link_from":"zoloz/zoloz.md","content":"dup","summary":"dup"},
@@ -1024,7 +1024,7 @@ mod tests {
             None,
             vec![],
             "original body",
-        );
+        ).unwrap();
 
         let result = cmd_update(
             &mut db,
@@ -1070,7 +1070,7 @@ mod tests {
             None,
             vec![],
             "original body",
-        );
+        ).unwrap();
 
         let result = cmd_update(
             &mut db,
@@ -1109,7 +1109,7 @@ mod tests {
             None,
             vec![],
             "body",
-        );
+        ).unwrap();
 
         let result = cmd_update(
             &mut db,
@@ -1149,7 +1149,7 @@ mod tests {
             None,
             vec![],
             "body",
-        );
+        ).unwrap();
 
         // a.md 原本无 outlinks
         let before = db.outlinks("zoloz/a.md").unwrap();
@@ -1195,7 +1195,7 @@ mod tests {
             None,
             vec![],
             "body",
-        );
+        ).unwrap();
         let result = cmd_update(
             &mut db,
             &root,
@@ -1248,7 +1248,7 @@ mod tests {
             None,
             vec![],
             "a body",
-        );
+        ).unwrap();
         let doc_abs = Path::new(&root).join("zoloz").join("a.md");
 
         let result = cmd_rm(&mut db, &root, "zoloz/a.md");
@@ -1282,7 +1282,7 @@ mod tests {
             None,
             vec![],
             "a body",
-        );
+        ).unwrap();
         cmd_add(
             &mut db,
             &root,
@@ -1295,7 +1295,7 @@ mod tests {
             None,
             vec![],
             "b body",
-        );
+        ).unwrap();
         // 删除前交叉验证:b 的唯一入链源是 a
         let b_inlinks = db.inlinks("zoloz/b.md").unwrap();
         assert!(!b_inlinks.is_empty());

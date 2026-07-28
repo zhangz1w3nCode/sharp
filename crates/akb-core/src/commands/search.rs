@@ -304,28 +304,9 @@ pub fn cmd_show(kb_root_abs: &str, doc: &str, summary_only: bool) -> Result<Valu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commands::write::cmd_init;
     use crate::graph_petgraph::KbGraph;
     use crate::index::scan_files;
     use std::io::Write;
-
-    fn setup_kb_with_docs() -> (tempfile::TempDir, String, IndexDb) {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().to_string_lossy().to_string();
-        let result = cmd_init(
-            &root,
-            "zoloz",
-            None,
-            "root summary",
-            None,
-            None,
-            vec![],
-            "root content with keyword",
-        );
-        assert!(result.is_ok());
-        let db = IndexDb::open(&root).unwrap();
-        (dir, root, db)
-    }
 
     fn write_doc(root: &str, rel: &str, content: &str) {
         let abs = Path::new(root).join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
