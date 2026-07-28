@@ -22,7 +22,7 @@ function Shell() {
       const mod = e.metaKey || e.ctrlKey;
       if (mod && e.key.toLowerCase() === "n") {
         e.preventDefault();
-        api.openEditor(null, true);
+        api.openEditor(null, state.view === "search" || state.view === "review");
       } else if (mod && e.key.toLowerCase() === "b") {
         e.preventDefault();
         api.toggleSidebar();
@@ -43,7 +43,6 @@ function Shell() {
         api.setView("kanban");
       } else if (e.key === "Escape") {
         if (state.sheet) api.openSheet(null);
-        else if (state.sheet) api.openSheet(null);
         else if (state.editor) api.closeEditor();
         else if (state.detailOpen) api.selectCard(null);
       }

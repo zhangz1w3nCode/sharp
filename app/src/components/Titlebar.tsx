@@ -39,7 +39,7 @@ export default function Titlebar() {
           className="btn btn-primary btn-icon"
           style={{ width: 32, height: 32 }}
           title="新建卡片 ⌘N"
-          onClick={() => api.openEditor(null, true)}
+          onClick={() => api.openEditor(null, state.view === "search" || state.view === "review")}
         >
           <Plus size={15} strokeWidth={2} />
         </button>

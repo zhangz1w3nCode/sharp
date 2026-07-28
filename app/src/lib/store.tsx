@@ -113,6 +113,10 @@ function reducer(s: State, a: Action): State {
     case "toggleStar":
       return { ...s, cards: s.cards.map((c) => (c.id === a.id ? { ...c, starred: !c.starred } : c)) };
     case "toggleSidebar":
+      if (s.view === "search") {
+        const next = !s.sidebarCollapsed;
+        return { ...s, sidebarCollapsed: next, _searchSidebarRestore: next };
+      }
       return { ...s, sidebarCollapsed: !s.sidebarCollapsed };
     case "searchDetail":
       return { ...s, searchDetailId: a.id };
