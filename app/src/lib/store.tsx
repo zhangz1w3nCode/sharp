@@ -7,7 +7,7 @@ import { Card, ReviewItem } from "./types";
 import { pathFor, uid } from "./derive";
 import { mockCards, mockQueue } from "../data/mock";
 
-export type View = "kb" | "review" | "graph" | "kanban";
+export type View = "kb" | "review" | "graph" | "search" | "kanban";
 export type SheetState = { kind: "settings" } | { kind: "broken"; path: string } | null;
 
 export interface EditorState {
@@ -27,12 +27,12 @@ interface State {
   selectedId: string | null;
   detailOpen: boolean;
   sidebarCollapsed: boolean;
-  /** 知识库根目录名(扩展点:后续选不同项目时动态切换) */
-  kbRoot: string;
-  searchOpen: boolean;
   sheet: SheetState;
   editor: EditorState | null;
   toast: { msg: string; key: number } | null;
+  kbRoot: string;
+  searchDetailId: string | null;
+  _searchSidebarRestore: boolean;
 }
 
 type Action =
@@ -40,14 +40,14 @@ type Action =
   | { type: "select"; id: string | null }
   | { type: "toggleStar"; id: string }
   | { type: "toggleSidebar" }
-  | { type: "search"; open: boolean }
   | { type: "sheet"; sheet: SheetState }
-  | { type: "editor"; editor: EditorState | null }
+  | { type: "editor"; editor: EditorState | null; keepView?: boolean }
   | { type: "toast"; msg: string }
   | { type: "approve"; id: string }
   | { type: "reject"; id: string }
   | { type: "enqueue"; item: ReviewItem }
-  | { type: "upsertCard"; card: Card };
+  | { type: "upsertCard"; card: Card }
+  | { type: "searchDetail"; id: string | null };
 
 const LS_KEY = "kb-state-v1";
 
@@ -68,6 +68,7 @@ function initView(): View {
   const h = typeof location !== "undefined" ? location.hash : "";
   if (h.startsWith("#/review")) return "review";
   if (h.startsWith("#/graph")) return "graph";
+  if (h.startsWith("#/search")) return "search";
   if (h.startsWith("#/kanban")) return "kanban";
   return "kb";
 }
@@ -81,24 +82,30 @@ function initState(): State {
     const c = cards.find((x) => x.path === decodeURIComponent(m[1]));
     if (c) selectedId = c.id;
   }
+  const initialView = initView();
   return {
-    view: initView(),
+    view: initialView,
     cards,
     queue,
     selectedId,
     detailOpen: selectedId !== null,
-    sidebarCollapsed: false,
-    kbRoot: ".knowledges",
-    searchOpen: false,
+    sidebarCollapsed: initialView === "search",
     sheet: null,
     editor: null,
     toast: null,
+    kbRoot: ".knowledges",
+    searchDetailId: null,
+    _searchSidebarRestore: false,
   };
 }
 
 function reducer(s: State, a: Action): State {
   switch (a.type) {
     case "view":
+      if (a.view === "search" && s.view !== "search")
+        return { ...s, view: a.view, _searchSidebarRestore: s.sidebarCollapsed, sidebarCollapsed: true };
+      if (s.view === "search" && a.view !== "search")
+        return { ...s, view: a.view, sidebarCollapsed: s._searchSidebarRestore };
       return { ...s, view: a.view };
     case "select":
       /* 选中其他卡片 = 退出编辑(同 Esc),保证网格选中与详情内容永远一致 */
@@ -107,17 +114,17 @@ function reducer(s: State, a: Action): State {
       return { ...s, cards: s.cards.map((c) => (c.id === a.id ? { ...c, starred: !c.starred } : c)) };
     case "toggleSidebar":
       return { ...s, sidebarCollapsed: !s.sidebarCollapsed };
-    case "search":
-      return { ...s, searchOpen: a.open };
+    case "searchDetail":
+      return { ...s, searchDetailId: a.id };
     case "sheet":
       return { ...s, sheet: a.sheet };
     case "editor":
-      /* 编辑器收拢进详情面板:打开时跳到知识库并展开面板;草稿清空选中 */
+      /* keepView: 搜索页编辑留在当前视图;默认跳知识库展开面板 */
       if (a.editor)
         return {
           ...s,
           editor: a.editor,
-          view: "kb",
+          view: a.keepView ? s.view : "kb",
           detailOpen: true,
           selectedId: a.editor.cardId ?? null,
         };
@@ -168,9 +175,9 @@ export interface Api {
   openCardByPath: (path: string) => void;
   toggleStar: (id: string) => void;
   toggleSidebar: () => void;
-  setSearch: (open: boolean) => void;
+  setSearchDetail: (id: string | null) => void;
   openSheet: (sheet: SheetState) => void;
-  openEditor: (cardId: string | null) => void;
+  openEditor: (cardId: string | null, keepView?: boolean) => void;
   openEditorProposal: (item: ReviewItem) => void;
   closeEditor: () => void;
   submitEditor: (e: EditorState) => void;
@@ -209,13 +216,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       },
       toggleStar: (id) => dispatch({ type: "toggleStar", id }),
       toggleSidebar: () => dispatch({ type: "toggleSidebar" }),
-      setSearch: (open) => dispatch({ type: "search", open }),
+      setSearchDetail: (id) => dispatch({ type: "searchDetail", id }),
       openSheet: (sheet) => dispatch({ type: "sheet", sheet }),
-      openEditor: (cardId) => {
+      openEditor: (cardId, keepView) => {
         if (cardId === null) {
           dispatch({
             type: "editor",
             editor: { cardId: null, path: "", title: "", summary: "", body: "## 新笔记\n\n开始书写…" },
+            keepView,
           });
           return;
         }
@@ -224,6 +232,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         dispatch({
           type: "editor",
           editor: { cardId: c.id, path: c.path, title: c.title, summary: c.summary, body: c.body },
+          keepView,
         });
       },
       openEditorProposal: (item) => {
@@ -238,6 +247,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             body: item.body,
             originReviewId: item.id,
           },
+          keepView: true,
         });
       },
       closeEditor: () => dispatch({ type: "editor", editor: null }),

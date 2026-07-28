@@ -4,12 +4,11 @@ import Titlebar from "./components/Titlebar";
 import Sidebar from "./components/Sidebar";
 import Resizer from "./components/Resizer";
 import Toast from "./components/Toast";
-import SearchPalette from "./components/SearchPalette";
 import Sheets from "./components/Sheets";
 import { KbMain, DetailPanel } from "./views/KbView";
 import ReviewView from "./views/ReviewView";
 import GraphView from "./views/GraphView";
-
+import SearchView from "./views/SearchView";
 import KanbanView from "./views/KanbanView";
 
 function Shell() {
@@ -17,16 +16,13 @@ function Shell() {
   const sideRef = useRef<HTMLElement>(null);
   const detailRef = useRef<HTMLElement>(null);
 
-  /* 全局快捷键:⌘K 搜索 · ⌘N 新建 · ⌘B 侧栏 · ⌘1/2/3/4 视图 · Esc 逐层关闭 */
+  /* 全局快捷键:⌘N 新建 · ⌘B 侧栏 · ⌘1/2/3/4/5 视图 · Esc 逐层关闭 */
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const mod = e.metaKey || e.ctrlKey;
-      if (mod && e.key.toLowerCase() === "k") {
+      if (mod && e.key.toLowerCase() === "n") {
         e.preventDefault();
-        api.setSearch(!state.searchOpen);
-      } else if (mod && e.key.toLowerCase() === "n") {
-        e.preventDefault();
-        api.openEditor(null);
+        api.openEditor(null, true);
       } else if (mod && e.key.toLowerCase() === "b") {
         e.preventDefault();
         api.toggleSidebar();
@@ -40,13 +36,13 @@ function Shell() {
         e.preventDefault();
         api.setView("graph");
       } else if (mod && e.key === "4") {
-
         e.preventDefault();
-
+        api.setView("search");
+      } else if (mod && e.key === "5") {
+        e.preventDefault();
         api.setView("kanban");
-
       } else if (e.key === "Escape") {
-        if (state.searchOpen) api.setSearch(false);
+        if (state.sheet) api.openSheet(null);
         else if (state.sheet) api.openSheet(null);
         else if (state.editor) api.closeEditor();
         else if (state.detailOpen) api.selectCard(null);
@@ -65,7 +61,7 @@ function Shell() {
         {state.view === "kb" && <KbMain />}
         {state.view === "review" && <ReviewView />}
         {state.view === "graph" && <GraphView />}
-
+        {state.view === "search" && <SearchView />}
         {state.view === "kanban" && <KanbanView />}
         {state.view === "kb" && (
           <>
@@ -74,7 +70,6 @@ function Shell() {
           </>
         )}
       </div>
-      <SearchPalette />
       <Sheets />
       <Toast />
     </div>

@@ -12,9 +12,10 @@ interface TreeItemProps {
   loaded: Map<string, TreeNode[]>;
   onToggle: (node: TreeNode) => void;
   selectedPath: string | null;
+  onOpenFile?: (path: string) => void;
 }
 
-function TreeItem({ node, depth, expanded, loaded, onToggle, selectedPath }: TreeItemProps) {
+function TreeItem({ node, depth, expanded, loaded, onToggle, selectedPath, onOpenFile }: TreeItemProps) {
   const { api } = useApp();
   const isExpanded = expanded.has(node.path);
   const isSelected = node.path === selectedPath;
@@ -23,6 +24,7 @@ function TreeItem({ node, depth, expanded, loaded, onToggle, selectedPath }: Tre
 
   const handleClick = () => {
     if (node.isDir) onToggle(node);
+    else if (onOpenFile) onOpenFile(node.path);
     else api.openCardByPath(node.path);
   };
 
@@ -44,13 +46,13 @@ function TreeItem({ node, depth, expanded, loaded, onToggle, selectedPath }: Tre
         {isLoading && <span className="tree-loading">…</span>}
       </div>
       {isExpanded && children?.map((child) => (
-        <TreeItem key={child.path} node={child} depth={depth + 1} expanded={expanded} loaded={loaded} onToggle={onToggle} selectedPath={selectedPath} />
+        <TreeItem key={child.path} node={child} depth={depth + 1} expanded={expanded} loaded={loaded} onToggle={onToggle} selectedPath={selectedPath} onOpenFile={onOpenFile} />
       ))}
     </>
   );
 }
 
-export default function FileTree() {
+export default function FileTree({ selectedPath: propSelectedPath, onOpenFile }: { selectedPath?: string | null; onOpenFile?: (path: string) => void } = {}) {
   const { state } = useApp();
   const [root, setRoot] = useState<TreeNode[] | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -65,7 +67,7 @@ export default function FileTree() {
   loadedRef.current = loaded;
 
   const selectedCard = state.cards.find((c) => c.id === state.selectedId);
-  const selectedPath = selectedCard?.path ?? null;
+  const selectedPath = propSelectedPath !== undefined ? propSelectedPath : (selectedCard?.path ?? null);
 
   /* 挂载时扫描顶层 */
   useEffect(() => {
@@ -133,7 +135,7 @@ export default function FileTree() {
   return (
     <nav className="file-tree">
       {root.map((node) => (
-        <TreeItem key={node.path} node={node} depth={0} expanded={expanded} loaded={loaded} onToggle={handleToggle} selectedPath={selectedPath} />
+        <TreeItem key={node.path} node={node} depth={0} expanded={expanded} loaded={loaded} onToggle={handleToggle} selectedPath={selectedPath} onOpenFile={onOpenFile} />
       ))}
     </nav>
   );

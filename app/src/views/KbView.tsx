@@ -36,7 +36,7 @@ export const KbMain = forwardRef<HTMLElement>(function KbMain(_props, ref) {
 });
 
 /** 详情面板 · 编辑态(与读态同处一面板) */
-function DetailEdit() {
+export function DetailEdit() {
   const { state, api } = useApp();
   const ed = state.editor;
   const [title, setTitle] = useState(ed?.title ?? "");
