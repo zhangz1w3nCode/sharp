@@ -32,6 +32,7 @@ interface State {
   toast: { msg: string; key: number } | null;
   kbRoot: string;
   searchDetailId: string | null;
+  _searchSidebarRestore: boolean;
 }
 
 type Action =
@@ -80,24 +81,30 @@ function initState(): State {
     const c = cards.find((x) => x.path === decodeURIComponent(m[1]));
     if (c) selectedId = c.id;
   }
+  const initialView = initView();
   return {
-    view: initView(),
+    view: initialView,
     cards,
     queue,
     selectedId,
     detailOpen: selectedId !== null,
-    sidebarCollapsed: false,
+    sidebarCollapsed: initialView === "search",
     sheet: null,
     editor: null,
     toast: null,
     kbRoot: ".knowledges",
     searchDetailId: null,
+    _searchSidebarRestore: false,
   };
 }
 
 function reducer(s: State, a: Action): State {
   switch (a.type) {
     case "view":
+      if (a.view === "search" && s.view !== "search")
+        return { ...s, view: a.view, _searchSidebarRestore: s.sidebarCollapsed, sidebarCollapsed: true };
+      if (s.view === "search" && a.view !== "search")
+        return { ...s, view: a.view, sidebarCollapsed: s._searchSidebarRestore };
       return { ...s, view: a.view };
     case "select":
       /* 选中其他卡片 = 退出编辑(同 Esc),保证网格选中与详情内容永远一致 */
