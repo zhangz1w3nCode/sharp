@@ -11,12 +11,15 @@
 - 极致理智、客观、理性、冰冷
 
 # 项目结构
-
 - `.experiences`:经验库
 - `.timelines`:记忆时间线库
 - `.tasks`:任务库
 - `.knowledges`:知识库
 - `.worktrees`:Git工作区
+- `crates`:项目代码仓库
+  - `akb-core`:共享业务逻辑库(db/index/parser/graph/graph_petgraph/util/error/commands)
+  - `akb-cli`:CLI薄壳二进制(clap 解析 + 调用 akb_core::commands::*)
+  - `akb-tauri`:Tauri桌面应用(React 前端 + src-tauri 桥接层)
 
 # 重要同时必须强制遵循事项
 
