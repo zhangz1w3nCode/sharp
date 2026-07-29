@@ -32,13 +32,11 @@ pub fn cmd_index(_db: &mut IndexDb, kb_root_abs: &str, flat: bool) -> Result<Val
     let files = scan_files(kb_root_abs);
     if flat {
         Ok(json!({
-            "command": "index",
             "total": files.len(),
             "documents": files,
         }))
     } else {
         Ok(json!({
-            "command": "index",
             "total": files.len(),
             "tree": tree_to_value(&files),
         }))
@@ -70,7 +68,6 @@ pub fn cmd_links(
         })
         .collect();
     Ok(json!({
-        "command": "links",
         "doc": doc,
         "direction": direction,
         "count": related.len(),
@@ -104,7 +101,6 @@ pub fn cmd_traverse(
     let direct_json = to_values(&direct)?;
     let via_root_json = to_values(&via_root)?;
     Ok(json!({
-        "command": "traverse",
         "from": doc,
         "max_hops": jumps,
         "bidir": bidir,
@@ -122,7 +118,6 @@ pub fn cmd_tags(db: &mut IndexDb, _kb_root_abs: &str, tag: Option<&str>) -> Resu
         let hits = db.docs_for_tag(tag)
             .map_err(|e| KbError::Other(format!("tags query failed: {}", e)))?;
         return Ok(json!({
-            "command": "tags",
             "tag": tag,
             "count": hits.len(),
             "documents": hits,
@@ -132,7 +127,6 @@ pub fn cmd_tags(db: &mut IndexDb, _kb_root_abs: &str, tag: Option<&str>) -> Resu
     let tag_map = db.list_tags()
         .map_err(|e| KbError::Other(format!("tags query failed: {}", e)))?;
     Ok(json!({
-        "command": "tags",
         "total_tags": tag_map.len(),
         "tags": tag_map,
     }))
@@ -173,7 +167,6 @@ pub fn cmd_search(
         .collect();
 
     Ok(json!({
-        "command": "search",
         "keyword": keyword,
         "total_files": total,
         "returned_files": matches.len(),
@@ -280,14 +273,12 @@ pub fn cmd_show(kb_root_abs: &str, doc: &str, summary_only: bool) -> Result<Valu
     let (fm, body, has_fm) = parse_frontmatter(&text);
     if summary_only {
         return Ok(json!({
-            "command": "show",
             "doc": doc,
             "summary": fm.summary,
             "name": fm.name,
         }));
     }
     Ok(json!({
-        "command": "show",
         "doc": doc,
         "has_frontmatter": has_fm,
         "frontmatter": {
@@ -500,6 +491,7 @@ mod tests {
         let result = cmd_search(&mut db, &root, "keyword", None, 2);
         assert!(result.is_ok());
         let v = result.unwrap();
+        assert!(v.get("command").is_none(), "core 返回值不应含 command 字段");
         let matches = v["matches"].as_array().unwrap();
         assert!(!matches.is_empty());
         let ctxs = matches[0]["contexts"].as_array().unwrap();

@@ -194,7 +194,6 @@ pub fn cmd_doctor(db: &mut IndexDb, kb_root_abs: &str) -> Result<Value, KbError>
     });
 
     Ok(json!({
-        "command": "doctor",
         "summary": {
             "total_documents": doc_paths.len(),
             "total_nodes_incl_dangling": all_nodes.len(),
@@ -379,7 +378,6 @@ pub fn cmd_stats(db: &mut IndexDb, kb_root_abs: &str) -> Result<Value, KbError> 
     };
 
     Ok(json!({
-        "command": "stats",
         "total_documents": total,
         "total_tags": all_tags.len(),
         "domains": domains,
@@ -466,6 +464,8 @@ mod tests {
         let (_dir, root, mut db) = setup_connected_kb();
         let result = cmd_doctor(&mut db, &root);
         assert!(result.is_ok());
+        let v = result.unwrap();
+        assert!(v.get("command").is_none(), "core 返回值不应含 command 字段");
         // 交叉验证:无孤儿、无断链
         let docs = db.all_docs_meta().unwrap();
         let doc_paths: HashSet<String> = docs.iter().map(|d| d.path.clone()).collect();
@@ -566,7 +566,8 @@ mod tests {
 
         let result = cmd_doctor(&mut db, &root);
         assert!(result.is_ok());
-
+        let v = result.unwrap();
+        assert!(v.get("command").is_none(), "core 返回值不应含 command 字段");
         // 交叉调 db.all_docs_meta 验证 has_frontmatter=false
         let docs = db.all_docs_meta().unwrap();
         let root_doc = docs.iter().find(|d| d.path == "zoloz/zoloz.md").unwrap();
@@ -580,6 +581,8 @@ mod tests {
         let (_dir, root, mut db) = setup_connected_kb();
         let result = cmd_stats(&mut db, &root);
         assert!(result.is_ok());
+        let v = result.unwrap();
+        assert!(v.get("command").is_none(), "core 返回值不应含 command 字段");
     }
 
     #[test]

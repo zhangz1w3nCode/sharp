@@ -5,4 +5,4 @@ pub mod graph;
 pub mod graph_petgraph;
 pub mod index;
 pub mod parser;
-pub mod util;
+pub(crate) mod util;

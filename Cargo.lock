@@ -36,6 +36,7 @@ dependencies = [
  "akb-core",
  "clap",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

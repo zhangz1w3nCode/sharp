@@ -9,11 +9,9 @@ use std::path::Path;
 use clap::{Parser, Subcommand};
 use serde_json::{json, Value};
 
-
 use akb_core::commands::{health, search, write};
 use akb_core::db::IndexDb;
 use akb_core::error::KbError;
-use akb_core::util::{error_json, output_json};
 
 #[derive(Parser)]
 #[command(name = "kb", about = "knowledge-base CLI: 确定性文件级/图级操作")]
@@ -219,6 +217,27 @@ fn resolve_content(content: &Option<String>, content_file: &Option<String>) -> R
     Err("content is required (use --content or --content-file)".to_string())
 }
 
+/// stdout 输出 pretty-printed JSON(面向 AI Agent 的机器契约)。
+/// 错误分支也产出合法 JSON,保证下游 jq/解析器不崩。
+fn output_json(data: &Value) {
+    match serde_json::to_string_pretty(data) {
+        Ok(s) => println!("{s}"),
+        Err(e) => {
+            let err = json!({"error": format!("output serialization failed: {e}")});
+            eprintln!(
+                "{}",
+                serde_json::to_string(&err)
+                    .unwrap_or_else(|_| "{\"error\":\"output serialization failed\"}".to_string())
+            );
+        }
+    }
+}
+
+fn error_json(msg: &str) -> i32 {
+    output_json(&json!({"error": msg}));
+    1
+}
+
 fn open_db(kb_root_abs: &str) -> IndexDb {
     match IndexDb::open(kb_root_abs) {
         Ok(db) => db,
@@ -239,14 +258,13 @@ fn run_index(db: &mut IndexDb, kb_root_abs: &str, args: IndexArgs) -> Result<Val
     if args.build {
         let stats = db.full_rebuild(kb_root_abs)
             .map_err(|e| KbError::Other(format!("index build failed: {}", e)))?;
-        Ok(json!({"command": "index", "mode": "build", "indexed": stats.indexed}))
+        Ok(json!({"mode": "build", "indexed": stats.indexed}))
     } else if args.status {
         let repair = db.repair_stale(kb_root_abs)
             .map_err(|e| KbError::Other(format!("repair stale failed: {}", e)))?;
         let status = db.status(kb_root_abs)
             .map_err(|e| KbError::Other(format!("status failed: {}", e)))?;
         Ok(json!({
-            "command": "index",
             "mode": "status",
             "repair": {
                 "added": repair.added,
@@ -301,7 +319,6 @@ fn main() {
             std::process::exit(2);
         }
     }
-
     let result: Result<Value, KbError> = match cli.command {
         Commands::Init(args) => match resolve_content(&args.content, &args.content_file) {
             Ok(content) => write::cmd_init(
