@@ -210,7 +210,6 @@ pub fn cmd_init(
     };
 
     Ok(json!({
-        "command": "init",
         "domain": domain,
         "kb_root": kb_root_abs,
         "name": name,
@@ -362,7 +361,6 @@ pub fn cmd_add(
         index_warnings.push(e);
     }
     Ok(json!({
-        "command": "add",
         "doc": o.doc,
         "linked_from": o.linked_from,
         "label": o.label,
@@ -465,7 +463,6 @@ pub fn cmd_rm(db: &mut IndexDb, kb_root_abs: &str, doc: &str) -> Result<Value, K
     }
 
     Ok(json!({
-        "command": "rm",
         "doc": doc,
         "abs_path": abs.to_string_lossy(),
         "deleted": false,
@@ -585,7 +582,6 @@ pub fn cmd_update(
     }
 
     Ok(json!({
-        "command": "update",
         "doc": doc,
         "changes": changes,
         "updated": true,
@@ -680,7 +676,6 @@ pub fn cmd_add_batch(
     }
 
     Ok(json!({
-        "command": "add-batch",
         "total": items.len(),
         "created": created_details.len(),
         "failed": failed_details.len(),
@@ -751,6 +746,8 @@ mod tests {
             "root body",
         );
         assert!(result.is_ok());
+        let v = result.unwrap();
+        assert!(v.get("command").is_none(), "core 返回值不应含 command 字段");
 
         // domain 目录存在
         assert!(Path::new(&root).join("zoloz").is_dir());
