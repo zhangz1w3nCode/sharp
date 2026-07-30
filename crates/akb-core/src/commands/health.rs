@@ -430,17 +430,17 @@ mod tests {
         write_doc(
             &root,
             "zoloz/zoloz.md",
-            "---\nname: zoloz\nsummary: root\ntags: [root]\n---\n[[`.knowledges/zoloz/a.md`]]",
+            "---\nname: zoloz\nsummary: root\ntags: [root]\nstatus: validated\n---\n[[`.knowledges/zoloz/a.md`]]",
         );
         write_doc(
             &root,
             "zoloz/a.md",
-            "---\nname: a\nsummary: a\ntags: [alpha]\n---\n[[`.knowledges/zoloz/b.md`]]",
+            "---\nname: a\nsummary: a\ntags: [alpha]\nstatus: validated\n---\n[[`.knowledges/zoloz/b.md`]]",
         );
         write_doc(
             &root,
             "zoloz/b.md",
-            "---\nname: b\nsummary: b\ntags: [beta]\n---\n[[`.knowledges/zoloz/zoloz.md`]]",
+            "---\nname: b\nsummary: b\ntags: [beta]\nstatus: validated\n---\n[[`.knowledges/zoloz/zoloz.md`]]",
         );
         let mut db = IndexDb::open(&root).unwrap();
         db.full_rebuild(&root).unwrap();
@@ -484,17 +484,17 @@ mod tests {
         write_doc(
             &root,
             "zoloz/zoloz.md",
-            "---\nname: zoloz\nsummary: root\ntags: [root]\n---\n[[`.knowledges/zoloz/a.md`]]",
+            "---\nname: zoloz\nsummary: root\ntags: [root]\nstatus: validated\n---\n[[`.knowledges/zoloz/a.md`]]",
         );
         write_doc(
             &root,
             "zoloz/a.md",
-            "---\nname: a\nsummary: a\ntags: [alpha]\n---\na body",
+            "---\nname: a\nsummary: a\ntags: [alpha]\nstatus: validated\n---\na body",
         );
         write_doc(
             &root,
             "zoloz/b.md",
-            "---\nname: b\nsummary: b\ntags: [beta]\n---\nb body",
+            "---\nname: b\nsummary: b\ntags: [beta]\nstatus: validated\n---\nb body",
         );
         let mut db = IndexDb::open(&root).unwrap();
         db.full_rebuild(&root).unwrap();
@@ -527,7 +527,7 @@ mod tests {
         write_doc(
             &root,
             "zoloz/zoloz.md",
-            "---\nname: zoloz\nsummary: root\ntags: [root]\n---\n[[`.knowledges/zoloz/nonexistent.md`]]",
+            "---\nname: zoloz\nsummary: root\ntags: [root]\nstatus: validated\n---\n[[`.knowledges/zoloz/nonexistent.md`]]",
         );
         let mut db = IndexDb::open(&root).unwrap();
         db.full_rebuild(&root).unwrap();
@@ -559,7 +559,7 @@ mod tests {
         write_doc(
             &root,
             "zoloz/a.md",
-            "---\nname: a\nsummary: a\ntags: []\n---\na body",
+            "---\nname: a\nsummary: a\ntags: []\nstatus: validated\n---\na body",
         );
         let mut db = IndexDb::open(&root).unwrap();
         db.full_rebuild(&root).unwrap();

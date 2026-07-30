@@ -283,7 +283,6 @@ pub fn cmd_show(kb_root_abs: &str, doc: &str, summary_only: bool) -> Result<Valu
         "has_frontmatter": has_fm,
         "frontmatter": {
             "name": fm.name,
-            "description": fm.description,
             "summary": fm.summary,
             "category": fm.category,
             "tags": fm.tags,
@@ -315,12 +314,12 @@ mod tests {
         write_doc(
             &root,
             "zoloz/a.md",
-            "---\nname: a\nsummary: a summary\ntags: [alpha]\n---\n[[`.knowledges/zoloz/b.md`]]",
+            "---\nname: a\nsummary: a summary\ntags: [alpha]\nstatus: validated\n---\n[[`.knowledges/zoloz/b.md`]]",
         );
         write_doc(
             &root,
             "zoloz/b.md",
-            "---\nname: b\nsummary: b summary\ntags: [beta]\n---\nb body with keyword",
+            "---\nname: b\nsummary: b summary\ntags: [beta]\nstatus: validated\n---\nb body with keyword",
         );
         let mut db = IndexDb::open(&root).unwrap();
         db.full_rebuild(&root).unwrap();
@@ -334,17 +333,17 @@ mod tests {
         write_doc(
             &root,
             "zoloz/a.md",
-            "---\nname: a\nsummary: a\ntags: [alpha]\n---\n[[`.knowledges/zoloz/b.md`]]",
+            "---\nname: a\nsummary: a\ntags: [alpha]\nstatus: validated\n---\n[[`.knowledges/zoloz/b.md`]]",
         );
         write_doc(
             &root,
             "zoloz/b.md",
-            "---\nname: b\nsummary: b\ntags: [beta]\n---\n[[`.knowledges/zoloz/c.md`|关系]]",
+            "---\nname: b\nsummary: b\ntags: [beta]\nstatus: validated\n---\n[[`.knowledges/zoloz/c.md`|关系]]",
         );
         write_doc(
             &root,
             "zoloz/c.md",
-            "---\nname: c\nsummary: c\ntags: [gamma]\n---\nc body",
+            "---\nname: c\nsummary: c\ntags: [gamma]\nstatus: validated\n---\nc body",
         );
         let mut db = IndexDb::open(&root).unwrap();
         db.full_rebuild(&root).unwrap();

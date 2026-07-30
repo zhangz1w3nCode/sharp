@@ -35,13 +35,25 @@ fn inline_elem_re() -> &'static Regex {
 }
 
 /// frontmatter 字段(只关心 5 个字段,其余忽略)。
-#[derive(Debug, Default, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Frontmatter {
     pub name: String,
-    pub description: String,
     pub summary: String,
     pub category: String,
     pub tags: Vec<String>,
+    pub status: String,
+}
+
+impl Default for Frontmatter {
+    fn default() -> Self {
+        Frontmatter {
+            name: String::new(),
+            summary: String::new(),
+            category: String::new(),
+            tags: Vec::new(),
+            status: "pending".to_string(),
+        }
+    }
 }
 
 /// 解析后的文档(对应 Python ParsedDoc)。
@@ -50,7 +62,6 @@ pub struct Frontmatter {
 pub struct ParsedDoc {
     pub path: String,
     pub name: String,
-    pub description: String,
     pub summary: String,
     pub category: String,
     pub tags: Vec<String>,
@@ -66,20 +77,20 @@ pub struct ParsedDoc {
 #[serde(default)]
 struct FmMapping {
     name: serde_yaml::Value,
-    description: serde_yaml::Value,
     summary: serde_yaml::Value,
     category: serde_yaml::Value,
     tags: serde_yaml::Value,
+    status: serde_yaml::Value,
 }
 
 impl Default for FmMapping {
     fn default() -> Self {
         FmMapping {
             name: serde_yaml::Value::Null,
-            description: serde_yaml::Value::Null,
             summary: serde_yaml::Value::Null,
             category: serde_yaml::Value::Null,
             tags: serde_yaml::Value::Null,
+            status: serde_yaml::Value::Null,
         }
     }
 }
@@ -223,6 +234,13 @@ fn value_to_tags(v: &serde_yaml::Value) -> Vec<String> {
     }
 }
 
+/// 校验 status 字段,只允许 pending/validated,默认 pending。
+fn validate_status(s: &str) -> String {
+    match s.trim() {
+        "validated" => "validated".to_string(),
+        _ => "pending".to_string(),
+    }
+}
 /// 解析 frontmatter,返回 (Frontmatter, body, has_frontmatter)。
 ///
 /// body 为 --- 闭合之后的文本(不含闭合 --- 行)。没有 frontmatter 时 body=全文。
@@ -252,10 +270,10 @@ pub fn parse_frontmatter(text: &str) -> (Frontmatter, String, bool) {
     let fm = if let Ok(m) = serde_yaml::from_str::<FmMapping>(&fm_text) {
         Frontmatter {
             name: value_to_string(&m.name),
-            description: value_to_string(&m.description),
             summary: value_to_string(&m.summary),
             category: value_to_string(&m.category),
             tags: value_to_tags(&m.tags),
+            status: validate_status(&value_to_string(&m.status)),
         }
     } else {
         parse_frontmatter_manual(&fm_text)
@@ -302,7 +320,7 @@ fn parse_frontmatter_manual(fm_text: &str) -> Frontmatter {
                     }
                     in_summary_multiline = false;
                 }
-                "name" | "description" | "summary" | "category" => {
+                "name" | "summary" | "category" | "status" => {
                     if matches!(
                         value.as_str(),
                         "|" | "|-" | "|+" | ">" | ">-" | ">+"
@@ -349,9 +367,9 @@ fn parse_frontmatter_manual(fm_text: &str) -> Frontmatter {
                         let trimmed = joined.trim().to_string();
                         match key.as_str() {
                             "name" => fm.name = trimmed,
-                            "description" => fm.description = trimmed,
                             "summary" => fm.summary = trimmed,
                             "category" => fm.category = trimmed,
+                            "status" => fm.status = validate_status(&trimmed),
                             _ => {}
                         }
                         i = j;
@@ -359,9 +377,9 @@ fn parse_frontmatter_manual(fm_text: &str) -> Frontmatter {
                         let v = value.trim_matches('"').trim_matches('\'').to_string();
                         match key.as_str() {
                             "name" => fm.name = v,
-                            "description" => fm.description = v,
                             "summary" => fm.summary = v,
                             "category" => fm.category = v,
+                            "status" => fm.status = validate_status(&v),
                             _ => {}
                         }
                         // 更新多行状态
@@ -397,7 +415,6 @@ pub fn parse_doc(text: &str, doc_path: &str, kb_root: &str, with_body: bool) -> 
     ParsedDoc {
         path: doc_path.to_string(),
         name: fm.name,
-        description: fm.description,
         summary: fm.summary,
         category: fm.category,
         tags: fm.tags,
@@ -472,11 +489,10 @@ mod tests {
 
     #[test]
     fn test_parse_frontmatter_yaml() {
-        let text = "---\nname: zoloz\ndescription: desc\nsummary: 摘要\ncategory: cat\ntags: [a, b]\n---\n正文内容";
+        let text = "---\nname: zoloz\nsummary: 摘要\ncategory: cat\ntags: [a, b]\n---\n正文内容";
         let (fm, body, has_fm) = parse_frontmatter(text);
         assert!(has_fm);
         assert_eq!(fm.name, "zoloz");
-        assert_eq!(fm.description, "desc");
         assert_eq!(fm.summary, "摘要");
         assert_eq!(fm.category, "cat");
         assert_eq!(fm.tags, vec!["a", "b"]);

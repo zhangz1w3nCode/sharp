@@ -239,22 +239,22 @@ mod tests {
         write_doc(
             &root,
             "zoloz/zoloz.md",
-            "---\nname: zoloz\nsummary: root\ntags: []\n---\n[[`zoloz/a.md`]]\n[[`zoloz/b.md`|rel]]",
+            "---\nname: zoloz\nsummary: root\ntags: []\nstatus: validated\n---\n[[`zoloz/a.md`]]\n[[`zoloz/b.md`|rel]]",
         );
         write_doc(
             &root,
             "zoloz/a.md",
-            "---\nname: a\nsummary: a\ntags: []\n---\n[[`zoloz/c.md`]]",
+            "---\nname: a\nsummary: a\ntags: []\nstatus: validated\n---\n[[`zoloz/c.md`]]",
         );
         write_doc(
             &root,
             "zoloz/b.md",
-            "---\nname: b\nsummary: b\ntags: []\n---\nbody",
+            "---\nname: b\nsummary: b\ntags: []\nstatus: validated\n---\nbody",
         );
         write_doc(
             &root,
             "zoloz/c.md",
-            "---\nname: c\nsummary: c\ntags: []\n---\nbody",
+            "---\nname: c\nsummary: c\ntags: []\nstatus: validated\n---\nbody",
         );
 
         let mut db = IndexDb::open(&root).unwrap();
