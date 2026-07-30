@@ -831,7 +831,7 @@ mod tests {
     fn test_add_doc_exists_error() {
         let (_dir, root, mut db) = setup_kb_with_docs();
         // 先创建文档
-        let result = cmd_add(
+        cmd_add(
             &mut db,
             &root,
             "zoloz/sub.md",
@@ -902,7 +902,7 @@ mod tests {
     #[test]
     fn test_update_content() {
         let (_dir, root, mut db) = setup_kb_with_docs();
-        let result = cmd_add(
+        cmd_add(
             &mut db,
             &root,
             "zoloz/a.md",
@@ -948,7 +948,7 @@ mod tests {
     #[test]
     fn test_update_append() {
         let (_dir, root, mut db) = setup_kb_with_docs();
-        let result = cmd_add(
+        cmd_add(
             &mut db,
             &root,
             "zoloz/a.md",
@@ -986,7 +986,7 @@ mod tests {
     #[test]
     fn test_update_summary_name_tags() {
         let (_dir, root, mut db) = setup_kb_with_docs();
-        let result = cmd_add(
+        cmd_add(
             &mut db,
             &root,
             "zoloz/a.md",
@@ -1026,7 +1026,7 @@ mod tests {
     #[test]
     fn test_update_add_link() {
         let (_dir, root, mut db) = setup_kb_with_docs();
-        let result = cmd_add(
+        cmd_add(
             &mut db,
             &root,
             "zoloz/a.md",
@@ -1077,7 +1077,7 @@ mod tests {
     #[test]
     fn test_update_no_args_error() {
         let (_dir, root, mut db) = setup_kb_with_docs();
-        let result = cmd_add(
+        cmd_add(
             &mut db,
             &root,
             "zoloz/a.md",
@@ -1129,7 +1129,7 @@ mod tests {
     #[test]
     fn test_rm_reports_and_keeps_file() {
         let (_dir, root, mut db) = setup_kb_with_docs();
-        let result = cmd_add(
+        cmd_add(
             &mut db,
             &root,
             "zoloz/a.md",
@@ -1162,7 +1162,7 @@ mod tests {
     fn test_rm_orphan_risk() {
         let (_dir, root, mut db) = setup_kb_with_docs();
         // root -> a -> b
-        let result = cmd_add(
+        cmd_add(
             &mut db,
             &root,
             "zoloz/a.md",
@@ -1175,7 +1175,7 @@ mod tests {
         ).unwrap();
         cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
         db.upsert_doc(&root, "zoloz/zoloz.md").unwrap();
-        let result = cmd_add(
+        cmd_add(
             &mut db,
             &root,
             "zoloz/b.md",
