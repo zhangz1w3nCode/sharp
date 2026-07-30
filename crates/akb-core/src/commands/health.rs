@@ -365,9 +365,8 @@ pub fn cmd_stats(db: &mut IndexDb, kb_root_abs: &str) -> Result<Value, KbError> 
     };
 
     let health_score = if total > 0 {
-        round2(
-            (total - unreachable_count - isolated_count - dangling_count) as f64 / total as f64,
-        )
+        let healthy = total.saturating_sub(unreachable_count).saturating_sub(isolated_count).saturating_sub(dangling_count);
+        round2(healthy as f64 / total as f64)
     } else {
         0.0
     };
