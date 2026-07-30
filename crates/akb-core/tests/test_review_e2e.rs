@@ -8,7 +8,7 @@ fn test_review_writes_to_index() {
     let root = dir.path().to_str().unwrap();
 
     // 1. init + add (status: pending)
-    cmd_init(root, "test", None, "root", None, vec![], "root body").unwrap();
+    cmd_init(root, "test", "root", None, vec![], "root body").unwrap();
     let mut db = IndexDb::open(root).unwrap();
     db.full_rebuild(root).unwrap();
     cmd_add(&mut db, root, "test/article.md", "test/test.md", None, "article summary", None, vec!["tech".to_string()], "akb framework content").unwrap();
@@ -49,7 +49,7 @@ fn test_update_after_review_resets_to_pending() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().to_str().unwrap();
 
-    cmd_init(root, "test", None, "root", None, vec![], "body").unwrap();
+    cmd_init(root, "test", "root", None, vec![], "body").unwrap();
     let mut db = IndexDb::open(root).unwrap();
     db.full_rebuild(root).unwrap();
     cmd_add(&mut db, root, "test/sub.md", "test/test.md", None, "sub", None, vec![], "original content").unwrap();

@@ -658,7 +658,7 @@ mod tests {
     fn setup_kb_with_docs() -> (tempfile::TempDir, String, IndexDb) {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_string_lossy().to_string();
-        cmd_init(
+        let result = cmd_init(
             &root,
             "zoloz",
             "root summary",
@@ -691,7 +691,7 @@ mod tests {
     #[test]
     fn test_init_creates_structure() {
         let (_dir, root) = setup_kb();
-        cmd_init(
+        let result = cmd_init(
             &root,
             "zoloz",
             "zoloz summary",
@@ -715,12 +715,13 @@ mod tests {
         let text = read_doc(&root, "zoloz/zoloz.md");
         let (fm, _, has_fm) = parse_frontmatter(&text);
         assert!(has_fm);
-        assert_eq!(fm.name, "ZolozName");
+        assert_eq!(fm.name, "zoloz");
         assert_eq!(fm.summary, "zoloz summary");
         assert!(fm.tags.contains(&"tag1".to_string()));
 
         // full_rebuild 后索引有 1 文档
         let mut db = IndexDb::open(&root).unwrap();
+        cmd_review(&mut db, &root, "zoloz/zoloz.md").unwrap();
         let stats = db.full_rebuild(&root).unwrap();
         assert_eq!(stats.indexed, 1);
         let docs = db.all_docs_meta().unwrap();
@@ -733,22 +734,24 @@ mod tests {
         let (_dir, root) = setup_kb();
         // 预先创建 root doc
         write_doc(&root, "zoloz/zoloz.md", "existing");
-        let result = cmd_init(&root, "zoloz", None, "s", None, None, vec![], "c");
+        let result = cmd_init(&root, "zoloz", "s", None, vec![], "c");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_init_empty_domain() {
         let (_dir, root) = setup_kb();
-        let result = cmd_init(&root, "", None, "s", None, None, vec![], "c");
+        let result = cmd_init(&root, "", "s", None, vec![], "c");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_init_default_name_tags() {
         let (_dir, root) = setup_kb();
-        let result = cmd_init(&root, "zoloz", None, "s", None, None, vec![], "c");
+        let result = cmd_init(&root, "zoloz", "s", None, vec![], "c");
         assert!(result.is_ok());
+        let mut db = IndexDb::open(&root).unwrap();
+        cmd_review(&mut db, &root, "zoloz/zoloz.md").unwrap();
         let text = read_doc(&root, "zoloz/zoloz.md");
         let (fm, _, _) = parse_frontmatter(&text);
         // 不传 name/tags 时默认用 domain
@@ -764,7 +767,7 @@ mod tests {
         let before_count = db.all_docs_meta().unwrap().len();
         assert_eq!(before_count, 1);
 
-        cmd_add(
+        let result = cmd_add(
             &mut db,
             &root,
             "zoloz/sub.md",
@@ -775,6 +778,8 @@ mod tests {
             vec!["tag1".to_string()],
             "sub content"
         );
+        cmd_review(&mut db, &root, "zoloz/sub.md").unwrap();
+        db.upsert_doc(&root, "zoloz/zoloz.md").unwrap();
         assert!(result.is_ok());
 
         // 新文档存在
@@ -796,7 +801,7 @@ mod tests {
     #[test]
     fn test_add_with_label() {
         let (_dir, root, mut db) = setup_kb_with_docs();
-        cmd_add(
+        let result = cmd_add(
             &mut db,
             &root,
             "zoloz/sub.md",
@@ -807,6 +812,8 @@ mod tests {
             vec!["tag1".to_string()],
             "sub content"
         );
+        cmd_review(&mut db, &root, "zoloz/sub.md").unwrap();
+        db.upsert_doc(&root, "zoloz/zoloz.md").unwrap();
         assert!(result.is_ok());
 
         // 父文档 link 行含 |关系 标签
@@ -824,7 +831,7 @@ mod tests {
     fn test_add_doc_exists_error() {
         let (_dir, root, mut db) = setup_kb_with_docs();
         // 先创建文档
-        cmd_add(
+        let result = cmd_add(
             &mut db,
             &root,
             "zoloz/sub.md",
@@ -835,8 +842,9 @@ mod tests {
             vec!["tag1".to_string()],
             "content"
         ).unwrap();
+        cmd_review(&mut db, &root, "zoloz/sub.md").unwrap();
         // 再次添加同文档
-        cmd_add(
+        let result = cmd_add(
             &mut db,
             &root,
             "zoloz/sub.md",
@@ -853,7 +861,7 @@ mod tests {
     #[test]
     fn test_add_parent_not_found_error() {
         let (_dir, root, mut db) = setup_kb_with_docs();
-        cmd_add(
+        let result = cmd_add(
             &mut db,
             &root,
             "zoloz/sub.md",
@@ -871,7 +879,7 @@ mod tests {
     fn test_add_auto_md_ext() {
         let (_dir, root, mut db) = setup_kb_with_docs();
         // doc_path 不带 .md
-        cmd_add(
+        let result = cmd_add(
             &mut db,
             &root,
             "zoloz/noext",
@@ -882,6 +890,8 @@ mod tests {
             vec!["tag1".to_string()],
             "c"
         );
+        cmd_review(&mut db, &root, "zoloz/noext.md").unwrap();
+        db.upsert_doc(&root, "zoloz/zoloz.md").unwrap();
         assert!(result.is_ok());
         // 自动补齐 .md
         assert!(Path::new(&root).join("zoloz").join("noext.md").exists());
@@ -892,7 +902,7 @@ mod tests {
     #[test]
     fn test_update_content() {
         let (_dir, root, mut db) = setup_kb_with_docs();
-        cmd_add(
+        let result = cmd_add(
             &mut db,
             &root,
             "zoloz/a.md",
@@ -903,6 +913,7 @@ mod tests {
             vec!["tag1".to_string()],
             "original body"
         ).unwrap();
+        cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
 
         let result = cmd_update(
             &mut db,
@@ -918,6 +929,7 @@ mod tests {
             None,
         );
         assert!(result.is_ok());
+        cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
 
         // 正文被替换
         let text = read_doc(&root, "zoloz/a.md");
@@ -936,7 +948,7 @@ mod tests {
     #[test]
     fn test_update_append() {
         let (_dir, root, mut db) = setup_kb_with_docs();
-        cmd_add(
+        let result = cmd_add(
             &mut db,
             &root,
             "zoloz/a.md",
@@ -947,6 +959,7 @@ mod tests {
             vec!["tag1".to_string()],
             "original body"
         ).unwrap();
+        cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
 
         let result = cmd_update(
             &mut db,
@@ -973,7 +986,7 @@ mod tests {
     #[test]
     fn test_update_summary_name_tags() {
         let (_dir, root, mut db) = setup_kb_with_docs();
-        cmd_add(
+        let result = cmd_add(
             &mut db,
             &root,
             "zoloz/a.md",
@@ -984,6 +997,7 @@ mod tests {
             vec!["tag1".to_string()],
             "body"
         ).unwrap();
+        cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
 
         let result = cmd_update(
             &mut db,
@@ -999,6 +1013,7 @@ mod tests {
             None,
         );
         assert!(result.is_ok());
+        cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
 
         // all_docs_meta 反映新值
         let docs = db.all_docs_meta().unwrap();
@@ -1011,7 +1026,7 @@ mod tests {
     #[test]
     fn test_update_add_link() {
         let (_dir, root, mut db) = setup_kb_with_docs();
-        cmd_add(
+        let result = cmd_add(
             &mut db,
             &root,
             "zoloz/a.md",
@@ -1022,6 +1037,7 @@ mod tests {
             vec!["tag1".to_string()],
             "body"
         ).unwrap();
+        cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
 
         // a.md 原本无 outlinks
         let before = db.outlinks("zoloz/a.md").unwrap();
@@ -1041,6 +1057,12 @@ mod tests {
             None,
         );
         assert!(result.is_ok());
+        cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
+        // target.md 需要存在且 validated 才能在索引中保留 link
+        write_doc(&root, "zoloz/target.md", "---\nname: target\nsummary: target\ntags: []\nstatus: validated\n---\ntarget body");
+        db.upsert_doc(&root, "zoloz/target.md").unwrap();
+        // a.md 的 outlinks 需要重新 upsert 才能看到 target.md
+        db.upsert_doc(&root, "zoloz/a.md").unwrap();
 
         // outlinks 数量+1
         let after = db.outlinks("zoloz/a.md").unwrap();
@@ -1055,7 +1077,7 @@ mod tests {
     #[test]
     fn test_update_no_args_error() {
         let (_dir, root, mut db) = setup_kb_with_docs();
-        cmd_add(
+        let result = cmd_add(
             &mut db,
             &root,
             "zoloz/a.md",
@@ -1066,6 +1088,7 @@ mod tests {
             vec!["tag1".to_string()],
             "body"
         ).unwrap();
+        cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
         let result = cmd_update(
             &mut db,
             &root,
@@ -1106,7 +1129,7 @@ mod tests {
     #[test]
     fn test_rm_reports_and_keeps_file() {
         let (_dir, root, mut db) = setup_kb_with_docs();
-        cmd_add(
+        let result = cmd_add(
             &mut db,
             &root,
             "zoloz/a.md",
@@ -1117,6 +1140,7 @@ mod tests {
             vec!["tag1".to_string()],
             "a body"
         ).unwrap();
+        cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
         let doc_abs = Path::new(&root).join("zoloz").join("a.md");
 
         let result = cmd_rm(&mut db, &root, "zoloz/a.md");
@@ -1138,7 +1162,7 @@ mod tests {
     fn test_rm_orphan_risk() {
         let (_dir, root, mut db) = setup_kb_with_docs();
         // root -> a -> b
-        cmd_add(
+        let result = cmd_add(
             &mut db,
             &root,
             "zoloz/a.md",
@@ -1149,7 +1173,9 @@ mod tests {
             vec!["tag1".to_string()],
             "a body"
         ).unwrap();
-        cmd_add(
+        cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
+        db.upsert_doc(&root, "zoloz/zoloz.md").unwrap();
+        let result = cmd_add(
             &mut db,
             &root,
             "zoloz/b.md",
@@ -1160,6 +1186,8 @@ mod tests {
             vec!["tag1".to_string()],
             "b body"
         ).unwrap();
+        cmd_review(&mut db, &root, "zoloz/b.md").unwrap();
+        db.upsert_doc(&root, "zoloz/a.md").unwrap();
         // 删除前交叉验证:b 的唯一入链源是 a
         let b_inlinks = db.inlinks("zoloz/b.md").unwrap();
         assert!(!b_inlinks.is_empty());
