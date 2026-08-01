@@ -234,7 +234,6 @@ fn value_to_tags(v: &serde_yaml::Value) -> Vec<String> {
     }
 }
 
-/// 校验 status 字段,只允许 pending/validated,默认 pending。
 /// 校验 status 字段,只允许 pending/validated。
 /// 空值(缺失 status 字段)默认 validated,用于 grandfather v3 时代文档的迁移。
 fn validate_status(s: &str) -> String {
@@ -288,8 +287,10 @@ pub fn parse_frontmatter(text: &str) -> (Frontmatter, String, bool) {
 /// 手写 frontmatter 解析(serde_yaml 失败时回退,与 Python parser 逐行逻辑一致)。
 fn parse_frontmatter_manual(fm_text: &str) -> Frontmatter {
     let lines: Vec<&str> = fm_text.split('\n').collect();
-    let mut fm = Frontmatter::default();
-    fm.status = "validated".to_string();
+    let mut fm = Frontmatter {
+        status: "validated".to_string(),
+        ..Default::default()
+    };
     let mut i = 0;
     let mut in_summary_multiline = false;
     while i < lines.len() {

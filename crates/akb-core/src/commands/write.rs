@@ -639,29 +639,36 @@ pub fn cmd_review(
         .map_err(|e| KbError::Other(format!("writing {}: {}", doc, e)))?;
     db.upsert_doc(kb_root_abs, &doc)?;
     // Re-upsert parent docs that link to this doc to restore incoming links
-    // that were deleted while the doc was pending
-    let doc_with_md = if doc.ends_with(".md") { doc.clone() } else { format!("{}.md", doc) };
-    let files = scan_files(kb_root_abs);
-    for file in &files {
-        if file == &doc { continue; }
-        let file_abs = abs_path(kb_root_abs, file);
-        let file_text = match std::fs::read_to_string(&file_abs) {
-            Ok(t) => t,
-            Err(_) => continue,
-        };
-        let links = parse_wikilinks(&file_text, ".knowledges");
-        let links_to_doc = links.iter().any(|(target, _)| {
-            let t = if target.ends_with(".md") { target.clone() } else { format!("{}.md", target) };
-            t == doc_with_md
-        });
-        if links_to_doc {
-            let _ = db.upsert_doc(kb_root_abs, file);
+    // that were deleted while the doc was pending.
+    // Skip when already validated: links are already in place from the prior review.
+    let mut index_warnings: Vec<String> = Vec::new();
+    if !already_validated {
+        let doc_with_md = if doc.ends_with(".md") { doc.clone() } else { format!("{}.md", doc) };
+        let files = scan_files(kb_root_abs);
+        for file in &files {
+            if file == &doc { continue; }
+            let file_abs = abs_path(kb_root_abs, file);
+            let file_text = match std::fs::read_to_string(&file_abs) {
+                Ok(t) => t,
+                Err(_) => continue,
+            };
+            let links = parse_wikilinks(&file_text, ".knowledges");
+            let links_to_doc = links.iter().any(|(target, _)| {
+                let t = if target.ends_with(".md") { target.clone() } else { format!("{}.md", target) };
+                t == doc_with_md
+            });
+            if links_to_doc {
+                if let Err(e) = db.upsert_doc(kb_root_abs, file) {
+                    index_warnings.push(format!("re-upsert {}: {}", file, e));
+                }
+            }
         }
     }
     Ok(json!({
         "doc": doc,
         "status": "validated",
         "already_validated": already_validated,
+        "index_warnings": index_warnings,
     }))
 }
 
