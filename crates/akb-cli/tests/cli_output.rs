@@ -65,6 +65,26 @@ fn run_akb(kb_root: &str, args: &[&str]) -> serde_json::Value {
     v
 }
 
+/// 运行 akb 命令并期望失败,返回 JSON error 输出。
+fn run_akb_err(kb_root: &str, args: &[&str]) -> serde_json::Value {
+    let output = Command::new(akb_bin())
+        .arg("--kb-root")
+        .arg(kb_root)
+        .args(args)
+        .output()
+        .expect("failed to run akb");
+    assert!(
+        !output.status.success(),
+        "akb {} should have failed but succeeded: stdout={}",
+        args.join(" "),
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("error output should be valid JSON");
+    assert!(v["error"].is_string(), "error output should have error field");
+    v
+}
+
 #[test]
 fn test_cli_stats_output_format() {
     let dir = init_temp_kb();
@@ -347,4 +367,173 @@ fn test_cli_links_reverse() {
     assert!(!related.is_empty(), "sub should have inlink from root");
     assert_eq!(related[0]["doc"], "testdomain/testdomain.md");
     assert_eq!(related[0]["relation"], "child");
+}
+
+#[test]
+fn test_cli_init_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let kb_root = dir.path().to_str().unwrap();
+
+    let output = Command::new(akb_bin())
+        .arg("--kb-root")
+        .arg(kb_root)
+        .arg("init")
+        .arg("mydomain")
+        .arg("--summary")
+        .arg("root summary")
+        .arg("--tags")
+        .arg("[root-tag]")
+        .arg("--content")
+        .arg("root content")
+        .output()
+        .expect("failed to run akb init");
+    assert!(output.status.success(), "akb init failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("init output is not valid JSON");
+
+    // JSON 输出验证
+    assert_eq!(v["domain"], "mydomain");
+    assert_eq!(v["name"], "mydomain");
+    assert!(v["created"].is_array());
+    assert!(v["index_updated"].as_bool().unwrap_or(false));
+
+    // 目录结构验证
+    assert!(std::path::Path::new(kb_root).join("mydomain").is_dir());
+    assert!(std::path::Path::new(kb_root).join("mydomain/mydomain.md").exists());
+    assert!(std::path::Path::new(kb_root).join("INDEX.md").exists());
+
+    // frontmatter 验证
+    let content = std::fs::read_to_string(
+        std::path::Path::new(kb_root).join("mydomain/mydomain.md")
+    ).unwrap();
+    assert!(content.contains("name: mydomain"));
+    assert!(content.contains("summary: root summary"));
+    assert!(content.contains("tags: [root-tag]"));
+    assert!(content.contains("status: pending"));
+    assert!(content.contains("root content"));
+}
+
+#[test]
+fn test_cli_search_validated() {
+    let dir = init_temp_kb();
+    let kb_root = dir.path().to_str().unwrap();
+
+    // add 文档 (pending)
+    run_akb(kb_root, &[
+        "add", "testdomain/sub.md",
+        "--link-from", "testdomain/testdomain.md",
+        "--summary", "about tauri", "--content", "tauri framework docs",
+        "--tags", "[]",
+    ]);
+
+    // pending 时搜索不到
+    let v = run_akb(kb_root, &["search", "tauri"]);
+    assert!(v["matches"].as_array().unwrap().is_empty(), "pending should not be searchable");
+
+    // validate 后搜索到
+    validate_doc(kb_root, "testdomain/sub.md");
+    let v = run_akb(kb_root, &["search", "tauri"]);
+    let matches = v["matches"].as_array().unwrap();
+    assert!(!matches.is_empty(), "validated doc should be searchable");
+    assert_eq!(matches[0]["doc"], "testdomain/sub.md");
+}
+
+#[test]
+fn test_cli_update_resets_status() {
+    let dir = init_temp_kb();
+    let kb_root = dir.path().to_str().unwrap();
+
+    // add + validate
+    run_akb(kb_root, &[
+        "add", "testdomain/sub.md",
+        "--link-from", "testdomain/testdomain.md",
+        "--summary", "original", "--content", "original body",
+        "--tags", "[]",
+    ]);
+    validate_doc(kb_root, "testdomain/sub.md");
+
+    // validated 时搜索到
+    let v = run_akb(kb_root, &["search", "original"]);
+    assert!(!v["matches"].as_array().unwrap().is_empty(), "validated should be searchable");
+
+    // update 后 status 回退 pending
+    run_akb(kb_root, &["update", "testdomain/sub.md", "--content", "modified content"]);
+
+    // 搜索不到 (pending)
+    let v = run_akb(kb_root, &["search", "modified"]);
+    assert!(v["matches"].as_array().unwrap().is_empty(), "after update, pending should not be searchable");
+
+    // 文件 status 回退 pending
+    let content = std::fs::read_to_string(
+        std::path::Path::new(kb_root).join("testdomain/sub.md")
+    ).unwrap();
+    assert!(content.contains("status: pending"), "update should reset status to pending");
+}
+
+#[test]
+fn test_cli_doctor_dangling() {
+    let dir = init_temp_kb();
+    let kb_root = dir.path().to_str().unwrap();
+
+    // add 文档含 broken wiki-link
+    run_akb(kb_root, &[
+        "add", "testdomain/sub.md",
+        "--link-from", "testdomain/testdomain.md",
+        "--summary", "has broken link",
+        "--content", "[[`.knowledges/testdomain/nonexistent.md`]]",
+        "--tags", "[]",
+    ]);
+    validate_doc(kb_root, "testdomain/sub.md");
+
+    // doctor 检测到 dangling
+    let v = run_akb(kb_root, &["doctor"]);
+    let dangling = v["dangling_links"].as_array().unwrap();
+    assert!(!dangling.is_empty(), "should detect dangling link to nonexistent.md");
+    assert_eq!(dangling[0]["source"], "testdomain/sub.md");
+    assert_eq!(dangling[0]["target"], "testdomain/nonexistent.md");
+}
+
+#[test]
+fn test_cli_add_parent_not_found() {
+    let dir = init_temp_kb();
+    let kb_root = dir.path().to_str().unwrap();
+    let v = run_akb_err(kb_root, &[
+        "add", "testdomain/sub.md",
+        "--link-from", "testdomain/nonexistent.md",
+        "--summary", "s", "--content", "c", "--tags", "[]",
+    ]);
+    assert!(v["error"].as_str().unwrap().contains("parent"));
+}
+
+#[test]
+fn test_cli_add_duplicate_doc() {
+    let dir = init_temp_kb();
+    let kb_root = dir.path().to_str().unwrap();
+    run_akb(kb_root, &[
+        "add", "testdomain/dup.md",
+        "--link-from", "testdomain/testdomain.md",
+        "--summary", "s", "--content", "c", "--tags", "[]",
+    ]);
+    let v = run_akb_err(kb_root, &[
+        "add", "testdomain/dup.md",
+        "--link-from", "testdomain/testdomain.md",
+        "--summary", "s", "--content", "c", "--tags", "[]",
+    ]);
+    assert!(v["error"].as_str().unwrap().contains("already exists"));
+}
+
+#[test]
+fn test_cli_rm_not_found() {
+    let dir = init_temp_kb();
+    let kb_root = dir.path().to_str().unwrap();
+    let v = run_akb_err(kb_root, &["rm", "testdomain/nonexistent.md"]);
+    assert!(v["error"].as_str().unwrap().contains("not found"));
+}
+
+#[test]
+fn test_cli_update_not_found() {
+    let dir = init_temp_kb();
+    let kb_root = dir.path().to_str().unwrap();
+    let v = run_akb_err(kb_root, &["update", "testdomain/nonexistent.md", "--content", "new"]);
+    assert!(v["error"].as_str().unwrap().contains("not found"));
 }
