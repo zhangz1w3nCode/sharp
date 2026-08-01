@@ -97,8 +97,8 @@ impl IndexDb {
             .optional()?
             .unwrap_or_else(|| "0".to_string());
 
-        // schema v4: docs 去 description 加 status 列
-        if current_version != "4" {
+        // schema v5: links 表 label 列改名为 relation
+        if current_version != "5" {
             self.conn.execute_batch(
                 "DROP TRIGGER IF EXISTS docs_ai;
                  DROP TRIGGER IF EXISTS docs_ad;
@@ -136,8 +136,8 @@ impl IndexDb {
             CREATE TABLE IF NOT EXISTS links (
                 source TEXT NOT NULL,
                 target TEXT NOT NULL,
-                label TEXT,
-                PRIMARY KEY (source, target, label)
+                relation TEXT,
+                PRIMARY KEY (source, target, relation)
             ) WITHOUT ROWID;
             CREATE INDEX IF NOT EXISTS idx_links_target ON links(target);
 
@@ -172,7 +172,7 @@ impl IndexDb {
 
             PRAGMA foreign_keys = ON;
 
-            INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '4');
+            INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '5');
 
             ANALYZE;
             ",
@@ -352,10 +352,10 @@ impl IndexDb {
 
             // 刷新 links(source=rel_path)
             tx.execute("DELETE FROM links WHERE source = ?1", params![rel_path])?;
-            for (target, label) in &links {
+            for (target, relation) in &links {
                 tx.execute(
-                    "INSERT OR IGNORE INTO links(source, target, label) VALUES (?1, ?2, ?3)",
-                    params![rel_path, target, label.as_deref().unwrap_or("")],
+                    "INSERT OR IGNORE INTO links(source, target, relation) VALUES (?1, ?2, ?3)",
+                    params![rel_path, target, relation.as_deref().unwrap_or("")],
                 )?;
             }
         } else {
@@ -478,10 +478,10 @@ impl IndexDb {
     pub fn outlinks(&self, doc: &str) -> Result<Vec<(String, Option<String>)>, rusqlite::Error> {
         let mut stmt = self
             .conn
-            .prepare("SELECT target, label FROM links WHERE source = ?1 ORDER BY target")?;
+            .prepare("SELECT target, relation FROM links WHERE source = ?1 ORDER BY target")?;
         let rows = stmt.query_map(params![doc], |row| {
-            let label: Option<String> = row.get(1)?;
-            Ok((row.get::<_, String>(0)?, label.filter(|s| !s.is_empty())))
+            let relation: Option<String> = row.get(1)?;
+            Ok((row.get::<_, String>(0)?, relation.filter(|s| !s.is_empty())))
         })?;
         let mut out: Vec<(String, Option<String>)> = Vec::new();
         for row in rows {
@@ -494,10 +494,10 @@ impl IndexDb {
     pub fn inlinks(&self, doc: &str) -> Result<Vec<(String, Option<String>)>, rusqlite::Error> {
         let mut stmt = self
             .conn
-            .prepare("SELECT source, label FROM links WHERE target = ?1 ORDER BY source")?;
+            .prepare("SELECT source, relation FROM links WHERE target = ?1 ORDER BY source")?;
         let rows = stmt.query_map(params![doc], |row| {
-            let label: Option<String> = row.get(1)?;
-            Ok((row.get::<_, String>(0)?, label.filter(|s| !s.is_empty())))
+            let relation: Option<String> = row.get(1)?;
+            Ok((row.get::<_, String>(0)?, relation.filter(|s| !s.is_empty())))
         })?;
         let mut inn: Vec<(String, Option<String>)> = Vec::new();
         for row in rows {
@@ -510,13 +510,13 @@ impl IndexDb {
     pub fn all_links(&self) -> Result<Vec<(String, String, Option<String>)>, rusqlite::Error> {
         let mut stmt = self
             .conn
-            .prepare("SELECT source, target, label FROM links ORDER BY source, target")?;
+            .prepare("SELECT source, target, relation FROM links ORDER BY source, target")?;
         let rows = stmt.query_map([], |row| {
-            let label: Option<String> = row.get(2)?;
+            let relation: Option<String> = row.get(2)?;
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
-                label.filter(|s| !s.is_empty()),
+                relation.filter(|s| !s.is_empty()),
             ))
         })?;
         let mut links: Vec<(String, String, Option<String>)> = Vec::new();
@@ -571,21 +571,21 @@ impl IndexDb {
         {
             let mut stmt = self
                 .conn
-                .prepare("SELECT source, target, label FROM links")?;
+                .prepare("SELECT source, target, relation FROM links")?;
             let rows = stmt.query_map([], |row| {
-                let label: Option<String> = row.get(2)?;
+                let relation: Option<String> = row.get(2)?;
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
-                    label.filter(|s| !s.is_empty()),
+                    relation.filter(|s| !s.is_empty()),
                 ))
             })?;
             for row in rows {
-                let (source, target, label) = row?;
+                let (source, target, relation) = row?;
                 outlinks_map
                     .entry(source)
                     .or_default()
-                    .push((target, label));
+                    .push((target, relation));
             }
         }
 
