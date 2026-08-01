@@ -32,6 +32,29 @@ fn is_reachable(target: &str, kb_root_abs: &str) -> bool {
     candidates.iter().any(|p| p.exists())
 }
 
+/// 从文件系统扫描 wiki-links,返回所有指向不可达目标的断链。
+/// (source, target, relation) 列表,与索引的 pruned links 表无关。
+fn scan_dangling_links(kb_root_abs: &str) -> Vec<(String, String, Option<String>)> {
+    let files = scan_files(kb_root_abs);
+    let mut dangling: Vec<(String, String, Option<String>)> = Vec::new();
+    for file in &files {
+        let file_abs = Path::new(kb_root_abs)
+            .join(file.replace('/', std::path::MAIN_SEPARATOR_STR));
+        let text = match std::fs::read_to_string(&file_abs) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        let links = parse_wikilinks(&text, ".knowledges");
+        for (target, relation) in &links {
+            if is_reachable(target, kb_root_abs) {
+                continue;
+            }
+            dangling.push((file.clone(), target.clone(), relation.clone()));
+        }
+    }
+    dangling
+}
+
 /// kb doctor - 知识库健康检查。
 pub fn cmd_doctor(db: &mut IndexDb, kb_root_abs: &str) -> Result<Value, KbError> {
     let docs_meta = db.all_docs_meta()
@@ -97,28 +120,18 @@ pub fn cmd_doctor(db: &mut IndexDb, kb_root_abs: &str) -> Result<Value, KbError>
     }
     orphans.sort();
 
-    // 3. 真断链 (从文件系统扫描 wiki-links,不依赖索引的 pruned links 表)
-    let mut dangling: Vec<Value> = Vec::new();
-    let files = scan_files(kb_root_abs);
-    for file in &files {
-        let file_abs = Path::new(kb_root_abs)
-            .join(file.replace('/', std::path::MAIN_SEPARATOR_STR));
-        let text = match std::fs::read_to_string(&file_abs) {
-            Ok(t) => t,
-            Err(_) => continue,
-        };
-        let links = parse_wikilinks(&text, ".knowledges");
-        for (target, label) in &links {
-            if is_reachable(target, kb_root_abs) {
-                continue;
-            }
-            dangling.push(json!({
-                "source": file,
+    // 3. 真断链 (从文件系统扫描,不依赖索引的 pruned links 表)
+    let raw_dangling = scan_dangling_links(kb_root_abs);
+    let mut dangling: Vec<Value> = raw_dangling
+        .iter()
+        .map(|(source, target, relation)| {
+            json!({
+                "source": source,
                 "target": target,
-                "relation": label,
-            }));
-        }
-    }
+                "relation": relation,
+            })
+        })
+        .collect();
     dangling.sort_by(|a, b| {
         let sa = a["source"].as_str().unwrap_or("");
         let sb = b["source"].as_str().unwrap_or("");
@@ -336,21 +349,7 @@ pub fn cmd_stats(db: &mut IndexDb, kb_root_abs: &str) -> Result<Value, KbError> 
         c
     };
 
-    let dangling_count = {
-        let mut c = 0;
-        for doc in &docs_meta {
-            for (tgt, _) in &doc.outlinks {
-                if doc_paths.contains(tgt) {
-                    continue;
-                }
-                if is_reachable(tgt, kb_root_abs) {
-                    continue;
-                }
-                c += 1;
-            }
-        }
-        c
-    };
+    let dangling_count = scan_dangling_links(kb_root_abs).len();
 
     let isolated_count = {
         let mut c = 0;

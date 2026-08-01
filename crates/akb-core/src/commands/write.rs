@@ -492,7 +492,7 @@ pub fn cmd_rm(db: &mut IndexDb, kb_root_abs: &str, doc: &str) -> Result<Value, K
         "outlinks": outlinks_data,
         "orphan_risk": orphan_risk,
         "reachability": reachability,
-        "hint": format!("to actually delete, run: rm {} (inlinks 字段列出指向本文档的引用,删除后它们会变成 dangling)", abs.display()),
+        "hint": format!("文档保留在磁盘,仅从索引移除。如需物理删除请手动 rm {} (inlinks 字段列出指向本文档的引用)", abs.display()),
     }))
 }
 
@@ -618,7 +618,10 @@ pub fn cmd_review(
     kb_root_abs: &str,
     doc: &str,
 ) -> Result<Value, KbError> {
-    let doc = norm_doc_arg(doc, ".knowledges");
+    let mut doc = norm_doc_arg(doc, ".knowledges");
+    if !doc.ends_with(".md") {
+        doc.push_str(".md");
+    }
     let abs = abs_path(kb_root_abs, &doc);
     let text = std::fs::read_to_string(&abs)
         .map_err(|e| KbError::Other(format!("reading {}: {}", doc, e)))?;
