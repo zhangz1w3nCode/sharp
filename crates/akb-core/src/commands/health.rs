@@ -115,7 +115,7 @@ pub fn cmd_doctor(db: &mut IndexDb, kb_root_abs: &str) -> Result<Value, KbError>
             dangling.push(json!({
                 "source": file,
                 "target": target,
-                "label": label,
+                "relation": label,
             }));
         }
     }

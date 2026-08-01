@@ -48,9 +48,9 @@ enum Commands {
         /// 双向遍历(out+in)
         #[arg(long)]
         bidir: bool,
-        /// 只保留边标签等于此值的路径(精确匹配)
-        #[arg(long = "label-filter")]
-        label_filter: Option<String>,
+        /// 只保留边关系等于此值的路径(精确匹配)
+        #[arg(long = "relation-filter")]
+        relation_filter: Option<String>,
     },
     /// 列出全部 tag 或查指定 tag 的文档
     Tags {
@@ -177,9 +177,9 @@ struct UpdateArgs {
     /// --add-link 的目标文档路径
     #[arg(long)]
     to: Option<String>,
-    /// --add-link 的边标签
+    /// --add-link 的边关系
     #[arg(long)]
-    label: Option<String>,
+    relation: Option<String>,
 }
 
 
@@ -319,8 +319,8 @@ fn main() {
                 Commands::Links { from, reverse } => {
                     search::cmd_links(&mut db, &kb_root_abs, &from, reverse)
                 }
-                Commands::Traverse { from, jumps, bidir, label_filter } => {
-                    search::cmd_traverse(&mut db, &kb_root_abs, &from, jumps, bidir, label_filter.as_deref())
+                Commands::Traverse { from, jumps, bidir, relation_filter } => {
+                    search::cmd_traverse(&mut db, &kb_root_abs, &from, jumps, bidir, relation_filter.as_deref())
                 }
                 Commands::Tags { tag } => search::cmd_tags(&mut db, &kb_root_abs, tag.as_deref()),
                 Commands::Search { keyword, top, context } => {
@@ -341,7 +341,7 @@ fn main() {
                 Commands::Update(args) => write::cmd_update(
                     &mut db, &kb_root_abs, &args.doc, args.content.as_deref(), args.append.as_deref(),
                     args.summary.as_deref(), args.name.as_deref(), args.tags, args.add_link,
-                    args.to.as_deref(), args.label.as_deref(),
+                    args.to.as_deref(), args.relation.as_deref(),
                 ),
                 Commands::Doctor => health::cmd_doctor(&mut db, &kb_root_abs),
                 Commands::Stats => health::cmd_stats(&mut db, &kb_root_abs),

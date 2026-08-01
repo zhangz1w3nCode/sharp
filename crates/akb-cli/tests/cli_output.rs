@@ -234,10 +234,10 @@ fn test_cli_tags_and_traverse() {
     let v = run_akb(kb_root, &["traverse", "--from", "testdomain/testdomain.md", "-j", "2", "--bidir"]);
     assert!(v["total_paths"].as_u64().unwrap_or(0) > 0);
 
-    // traverse --label-filter
-    let v = run_akb(kb_root, &["traverse", "--from", "testdomain/testdomain.md", "-j", "2", "--label-filter", "关联"]);
+    // traverse --relation-filter
+    let v = run_akb(kb_root, &["traverse", "--from", "testdomain/testdomain.md", "-j", "2", "--relation-filter", "关联"]);
     let filtered = v["paths"].as_array().unwrap();
-    assert!(!filtered.is_empty(), "should find paths with label '关联'");
+    assert!(!filtered.is_empty(), "should find paths with relation '关联'");
 }
 
 #[test]
@@ -272,7 +272,7 @@ fn test_cli_update_and_verify() {
         "--link-from", "testdomain/testdomain.md",
         "--summary", "target", "--content", "target body", "--tags", "[]",
     ]);
-    let v = run_akb(kb_root, &["update", "testdomain/sub.md", "--add-link", "--to", "testdomain/target.md", "--label", "ref"]);
+    let v = run_akb(kb_root, &["update", "testdomain/sub.md", "--add-link", "--to", "testdomain/target.md", "--relation", "ref"]);
     assert!(v["changes"].as_array().unwrap().iter().any(|c| c.as_str().unwrap_or("").starts_with("add-link")));
 
     // verify all changes with show
@@ -346,5 +346,5 @@ fn test_cli_links_reverse() {
     let related = v["related"].as_array().unwrap();
     assert!(!related.is_empty(), "sub should have inlink from root");
     assert_eq!(related[0]["doc"], "testdomain/testdomain.md");
-    assert_eq!(related[0]["label"], "child");
+    assert_eq!(related[0]["relation"], "child");
 }

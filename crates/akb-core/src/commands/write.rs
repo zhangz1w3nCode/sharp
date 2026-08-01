@@ -426,11 +426,11 @@ pub fn cmd_rm(db: &mut IndexDb, kb_root_abs: &str, doc: &str) -> Result<Value, K
 
     let inlinks_data: Vec<Value> = inlinks
         .iter()
-        .map(|(s, l)| json!({"doc": s, "label": l}))
+        .map(|(s, l)| json!({"doc": s, "relation": l}))
         .collect();
     let outlinks_data: Vec<Value> = outlinks
         .iter()
-        .map(|(t, l)| json!({"doc": t, "label": l, "exists": doc_paths_set.contains(t)}))
+        .map(|(t, l)| json!({"doc": t, "relation": l, "exists": doc_paths_set.contains(t)}))
         .collect();
 
     // 孤儿风险
@@ -508,7 +508,7 @@ pub fn cmd_update(
     tags: Vec<String>,
     add_link: bool,
     to: Option<&str>,
-    label: Option<&str>,
+    relation: Option<&str>,
 ) -> Result<Value, KbError> {
     let doc = norm_doc_arg(doc, ".knowledges");
     let abs = abs_path(kb_root_abs, &doc);
@@ -563,9 +563,9 @@ pub fn cmd_update(
             None => return Err(KbError::Other("--add-link requires --to <doc>".into())),
         };
         let target = normalize_path(to, ".knowledges");
-        let link_line = if let Some(label) = label {
-            if !label.is_empty() {
-                format!("- [[`.knowledges/{}`|{}]]", target, label)
+        let link_line = if let Some(relation) = relation {
+            if !relation.is_empty() {
+                format!("- [[`.knowledges/{}`|{}]]", target, relation)
             } else {
                 format!("- [[`.knowledges/{}`]]", target)
             }
@@ -828,7 +828,7 @@ mod tests {
     }
 
     #[test]
-    fn test_add_with_label() {
+    fn test_add_with_relation() {
         let (_dir, root, mut db) = setup_kb_with_docs();
         let result = cmd_add(
             &mut db,
