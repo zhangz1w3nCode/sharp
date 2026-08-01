@@ -68,3 +68,31 @@ fn test_update_after_review_resets_to_pending() {
     let content = std::fs::read_to_string(format!("{root}/test/sub.md")).unwrap();
     assert!(content.contains("status: pending"), "update后应回退pending");
 }
+
+#[test]
+fn test_review_restores_links() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_str().unwrap();
+
+    // 1. init root (pending)
+    cmd_init(root, "test", "root", None, vec![], "root body").unwrap();
+    let mut db = IndexDb::open(root).unwrap();
+    db.full_rebuild(root).unwrap();
+
+    // 2. add child linked from root (pending)
+    cmd_add(&mut db, root, "test/child.md", "test/test.md", None, "child summary", None, vec!["tech".to_string()], "child body").unwrap();
+
+    // 3. review root -> validated
+    cmd_review(&mut db, root, "test/test.md").unwrap();
+
+    // 4. review child -> validated
+    cmd_review(&mut db, root, "test/child.md").unwrap();
+
+    // 5. root's outlinks include child (link restored by parent re-upsert)
+    let out = db.outlinks("test/test.md").unwrap();
+    assert!(out.iter().any(|(t, _)| t == "test/child.md"), "root should have outlink to child after review");
+
+    // 6. child's inlinks include root (link restored)
+    let in_ = db.inlinks("test/child.md").unwrap();
+    assert!(in_.iter().any(|(s, _)| s == "test/test.md"), "child should have inlink from root after review");
+}

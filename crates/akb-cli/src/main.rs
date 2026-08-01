@@ -138,27 +138,18 @@ struct AddArgs {
 struct InitArgs {
     /// 业务领域名(如 zoloz)
     domain: String,
-    /// frontmatter name(默认用 domain)
-    #[arg(long)]
-    name: Option<String>,
     /// frontmatter summary(根文档摘要,必需)
     #[arg(long)]
     summary: String,
-    /// frontmatter description(默认 "{domain} 业务领域根节点")
-    #[arg(long)]
-    description: Option<String>,
     /// frontmatter category(默认用 domain)
     #[arg(long)]
     category: Option<String>,
-    /// frontmatter tag(可多次,默认 [domain])
-    #[arg(long = "tags", value_name = "TAG")]
-    tags: Vec<String>,
+    /// frontmatter tags(格式 [tag1,tag2,...],默认 [domain])
+    #[arg(long)]
+    tags: String,
     /// 根文档正文内容
-    #[arg(long, conflicts_with = "content_file")]
-    content: Option<String>,
-    /// 从文件读取根文档正文
-    #[arg(long = "content-file", conflicts_with = "content")]
-    content_file: Option<String>,
+    #[arg(long)]
+    content: String,
 }
 
 #[derive(clap::Args)]
@@ -191,16 +182,6 @@ struct UpdateArgs {
     label: Option<String>,
 }
 
-/// 解析 --content 或 --content-file,返回正文内容。
-fn resolve_content(content: &Option<String>, content_file: &Option<String>) -> Result<String, String> {
-    if let Some(c) = content {
-        return Ok(c.clone());
-    }
-    if let Some(f) = content_file {
-        return std::fs::read_to_string(f).map_err(|e| format!("reading content file: {}", e));
-    }
-    Err("content is required (use --content or --content-file)".to_string())
-}
 
 /// 解析 tags 参数,格式 [tag1,tag2,...],校验后返回 Vec<String>。
 fn parse_tags(s: &str) -> Result<Vec<String>, String> {
@@ -324,10 +305,10 @@ fn main() {
         }
     }
     let result: Result<Value, KbError> = match cli.command {
-        Commands::Init(args) => match resolve_content(&args.content, &args.content_file) {
-            Ok(content) => write::cmd_init(
+        Commands::Init(args) => match parse_tags(&args.tags) {
+            Ok(tags) => write::cmd_init(
                 &kb_root_abs, &args.domain, &args.summary,
-                args.category.as_deref(), args.tags, &content,
+                args.category.as_deref(), tags, &args.content,
             ),
             Err(e) => Err(KbError::Other(e)),
         },

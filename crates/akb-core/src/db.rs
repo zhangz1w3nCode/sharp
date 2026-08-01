@@ -371,6 +371,7 @@ impl IndexDb {
     pub fn remove_doc(&mut self, rel_path: &str) -> Result<(), KbError> {
         let tx = self.conn.transaction()?;
         tx.execute("DELETE FROM docs WHERE path = ?1", params![rel_path])?;
+        tx.execute("DELETE FROM tags WHERE doc_path = ?1", params![rel_path])?;
         tx.execute("DELETE FROM links WHERE source = ?1", params![rel_path])?;
         tx.execute("DELETE FROM links WHERE target = ?1", params![rel_path])?;
         tx.commit()?;
@@ -413,6 +414,7 @@ impl IndexDb {
         let escaped = query.replace('"', "\"\"");
         let fts_query = format!("\"{}\"", escaped);
 
+        // d.status = 'validated' 是防御性过滤:upsert_doc_in_tx 已保证 docs 表只含 validated 行
         let fts_sql = "SELECT d.path, d.name, d.summary, bm25(docs_fts, 1.0, 3.0, 3.0, 2.0, 1.0, 3.0) AS rank
                        FROM docs_fts
                        JOIN docs d ON d.rowid = docs_fts.rowid

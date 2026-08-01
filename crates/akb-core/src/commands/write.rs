@@ -14,9 +14,9 @@ use crate::error::KbError;
 use crate::graph::{is_root_doc, norm_doc_arg};
 use crate::graph_petgraph::KbGraph;
 use crate::index::{format_tree, scan_files};
-use crate::parser::{normalize_path, parse_frontmatter};
+use crate::parser::{normalize_path, parse_frontmatter, parse_wikilinks};
 
-const INDEX_TEMPLATE: &str = "---\nname: INDEX\ndescription: 知识库全局索引\ntags: [index]\n---\n```\n{tree}\n```\n";
+const INDEX_TEMPLATE: &str = "---\nname: INDEX\nsummary: 知识库全局索引\ntags: [index]\nstatus: validated\n---\n```\n{tree}\n```\n";
 
 /// markdown bullet 前缀正则:^[-*+]\s+(.*)$
 static MD_BULLET_RE: OnceLock<Regex> = OnceLock::new();
@@ -88,7 +88,8 @@ fn yaml_scalar(s: &str) -> String {
         || s.contains('"')
         || s.contains('\'')
         || s.contains('%')
-        || s.contains('\n');
+        || s.contains('\n')
+        || matches!(s, "null" | "Null" | "NULL" | "~");
     if needs_quote {
         format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
     } else {
@@ -611,6 +612,7 @@ pub fn cmd_update(
 
 /// 审核通过:将文档 status 改为 validated 并更新索引。
 /// 这是给 GUI(Tauri) 调用的核心 API,CLI 不暴露。
+/// review 后会重新 upsert 所有指向该文档的父文档,恢复入链。
 pub fn cmd_review(
     db: &mut IndexDb,
     kb_root_abs: &str,
@@ -636,6 +638,26 @@ pub fn cmd_review(
     std::fs::write(&abs, new_text)
         .map_err(|e| KbError::Other(format!("writing {}: {}", doc, e)))?;
     db.upsert_doc(kb_root_abs, &doc)?;
+    // Re-upsert parent docs that link to this doc to restore incoming links
+    // that were deleted while the doc was pending
+    let doc_with_md = if doc.ends_with(".md") { doc.clone() } else { format!("{}.md", doc) };
+    let files = scan_files(kb_root_abs);
+    for file in &files {
+        if file == &doc { continue; }
+        let file_abs = abs_path(kb_root_abs, file);
+        let file_text = match std::fs::read_to_string(&file_abs) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        let links = parse_wikilinks(&file_text, ".knowledges");
+        let links_to_doc = links.iter().any(|(target, _)| {
+            let t = if target.ends_with(".md") { target.clone() } else { format!("{}.md", target) };
+            t == doc_with_md
+        });
+        if links_to_doc {
+            let _ = db.upsert_doc(kb_root_abs, file);
+        }
+    }
     Ok(json!({
         "doc": doc,
         "status": "validated",

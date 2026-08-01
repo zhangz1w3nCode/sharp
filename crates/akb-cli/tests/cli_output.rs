@@ -14,6 +14,8 @@ fn init_temp_kb() -> tempfile::TempDir {
         .arg("testdomain")
         .arg("--summary")
         .arg("root summary")
+        .arg("--tags")
+        .arg("[]")
         .arg("--content")
         .arg("root body")
         .output()
