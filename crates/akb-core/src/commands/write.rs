@@ -646,7 +646,7 @@ pub fn cmd_review(
         let doc_with_md = if doc.ends_with(".md") { doc.clone() } else { format!("{}.md", doc) };
         let files = scan_files(kb_root_abs);
         for file in &files {
-            if file == &doc { continue; }
+            if file == &doc_with_md { continue; }
             let file_abs = abs_path(kb_root_abs, file);
             let file_text = match std::fs::read_to_string(&file_abs) {
                 Ok(t) => t,

@@ -153,7 +153,7 @@ impl KbGraph {
         let mut result: Vec<TraversePath> = Vec::new();
         for (_target, (hops, _, p)) in by_target {
             let nodes: Vec<String> = p.iter().map(|(n, _)| n.clone()).collect();
-            let labels: Vec<Option<String>> =
+            let relations: Vec<Option<String>> =
                 p.iter().skip(1).map(|(_, l)| l.clone()).collect();
             let via_root = if nodes.len() >= 3 {
                 nodes[1..nodes.len() - 1]
@@ -165,7 +165,7 @@ impl KbGraph {
             result.push(TraversePath {
                 hops,
                 path: nodes,
-                labels,
+                relations,
                 via_root,
             });
         }

@@ -37,7 +37,7 @@ enum Commands {
         #[arg(long)]
         reverse: bool,
     },
-    /// 图遍历(BFS,带边标签,按 target 去重)
+    /// 图遍历(BFS,带边关系,按 target 去重)
     Traverse {
         /// 起始文档路径
         #[arg(long = "from")]
@@ -76,7 +76,7 @@ enum Commands {
         #[arg(long)]
         summary: bool,
     },
-    /// 创建新文档 + 在父文档建立带标签 wiki-link
+    /// 创建新文档 + 在父文档建立带关系 wiki-link
     Add(AddArgs),
     /// 删除影响报告(只报告,不删文件)
     Rm {

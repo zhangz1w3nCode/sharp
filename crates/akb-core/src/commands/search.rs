@@ -434,7 +434,7 @@ mod tests {
         let graph = KbGraph::from_index(&db).unwrap();
         let paths = graph.traverse("zoloz/a.md", 2, false, Some("关系"));
         for p in &paths {
-            assert!(p.labels.iter().any(|l| l.as_deref() == Some("关系")));
+            assert!(p.relations.iter().any(|l| l.as_deref() == Some("关系")));
         }
     }
 
