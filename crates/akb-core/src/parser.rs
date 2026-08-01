@@ -238,7 +238,6 @@ fn value_to_tags(v: &serde_yaml::Value) -> Vec<String> {
 fn validate_status(s: &str) -> String {
     match s.trim() {
         "validated" => "validated".to_string(),
-        "pending" => "pending".to_string(),
         _ => "pending".to_string(),
     }
 }

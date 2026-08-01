@@ -6,10 +6,12 @@ use std::path::Path;
 use serde_json::{json, Value};
 
 use crate::db::IndexDb;
-use crate::graph::is_root_doc;
 use crate::error::KbError;
-use crate::util::round2;
+use crate::graph::is_root_doc;
 use crate::graph_petgraph::KbGraph;
+use crate::index::scan_files;
+use crate::parser::parse_wikilinks;
+use crate::util::round2;
 
 /// 判断 target 路径在文件系统上是否可达(支持跨库)。
 ///
@@ -95,19 +97,24 @@ pub fn cmd_doctor(db: &mut IndexDb, kb_root_abs: &str) -> Result<Value, KbError>
     }
     orphans.sort();
 
-    // 3. 真断链
+    // 3. 真断链 (从文件系统扫描 wiki-links,不依赖索引的 pruned links 表)
     let mut dangling: Vec<Value> = Vec::new();
-    for doc in &docs_meta {
-        for (tgt, label) in &doc.outlinks {
-            if doc_paths.contains(tgt) {
-                continue;
-            }
-            if is_reachable(tgt, kb_root_abs) {
+    let files = scan_files(kb_root_abs);
+    for file in &files {
+        let file_abs = Path::new(kb_root_abs)
+            .join(file.replace('/', std::path::MAIN_SEPARATOR_STR));
+        let text = match std::fs::read_to_string(&file_abs) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        let links = parse_wikilinks(&text, ".knowledges");
+        for (target, label) in &links {
+            if is_reachable(target, kb_root_abs) {
                 continue;
             }
             dangling.push(json!({
-                "source": doc.path,
-                "target": tgt,
+                "source": file,
+                "target": target,
                 "label": label,
             }));
         }
@@ -533,21 +540,12 @@ mod tests {
 
         let result = cmd_doctor(&mut db, &root);
         assert!(result.is_ok());
-
-        // 交叉验证:link target 不在 doc_paths 中
-        let docs = db.all_docs_meta().unwrap();
-        let doc_paths: HashSet<String> = docs.iter().map(|d| d.path.clone()).collect();
-        for d in &docs {
-            for (t, _) in &d.outlinks {
-                if !doc_paths.contains(t) {
-                    // 找到 dangling link
-                    assert!(true);
-                    return;
-                }
-            }
-        }
-        // links 指向 pending/不存在文档已被索引清理,无 dangling link
-        // 这是正确行为:索引只保留 validated 文档间的 links
+        let v = result.unwrap();
+        // doctor 从文件系统扫描 wiki-links,应检测到指向 nonexistent.md 的断链
+        let dangling = v["dangling_links"].as_array().unwrap();
+        assert!(!dangling.is_empty(), "should detect dangling link to nonexistent.md");
+        assert_eq!(dangling[0]["source"], "zoloz/zoloz.md");
+        assert_eq!(dangling[0]["target"], "zoloz/nonexistent.md");
     }
 
     #[test]

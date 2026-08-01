@@ -111,12 +111,12 @@ fn build_frontmatter(
         let items: Vec<String> = tags.iter().map(|t| yaml_scalar(t)).collect();
         format!("[{}]", items.join(", "))
     };
-    let lines = vec![
+    let lines = [
         format!("name: {}", yaml_scalar(name)),
         format!("summary: {}", yaml_scalar(&summary)),
         format!("category: {}", yaml_scalar(category)),
         format!("tags: {}", tags_str),
-        format!("status: {}", status),
+        format!("status: {}", yaml_scalar(status)),
     ];
     Ok(format!("---\n{}\n---", lines.join("\n")))
 }

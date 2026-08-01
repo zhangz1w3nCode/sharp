@@ -193,6 +193,7 @@ impl IndexDb {
             Self::upsert_doc_in_tx(&tx, kb_root_abs, rel)?;
         }
 
+        // indexed = validated 文档数(非文件总数);pending 文档不写入索引
         let indexed: i64 = tx.query_row("SELECT COUNT(*) FROM docs", [], |row| row.get(0))?;
         // 清理指向未索引文档(pending)的 links
         tx.execute("DELETE FROM links WHERE target NOT IN (SELECT path FROM docs)", [])?;
