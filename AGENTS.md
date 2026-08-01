@@ -17,9 +17,9 @@
 - `.knowledges`:知识库
 - `.worktrees`:Git工作区
 - `crates`:项目代码仓库
-  - `akb-core`:共享业务逻辑库(db/index/parser/graph/graph_petgraph/util/error/commands)
-  - `akb-cli`:CLI薄壳二进制(clap 解析 + 调用 akb_core::commands::*)
-  - `akb-tauri`:Tauri桌面应用(React 前端 + src-tauri 桥接层)
+  - `akb-core`:core层:核心操作原子能力
+  - `akb-cli`:cli层:给agent透出使用cli命令操作接口
+  - `akb-tauri`:gui层:给Tauri桌面应用透出的操作接口
 
 # 重要同时必须强制遵循事项
 
