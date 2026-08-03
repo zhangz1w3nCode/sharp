@@ -1151,8 +1151,29 @@ mod tests {
         assert!(result.is_ok());
         // 自动补齐 .md
         assert!(Path::new(&root).join("zoloz").join("noext.md").exists());
+        // 自动补齐 .md
+        assert!(Path::new(&root).join("zoloz").join("noext.md").exists());
     }
 
+    #[test]
+    fn test_add_top_level_doc_no_domain() {
+        let (_dir, root, mut db) = setup_kb_with_docs();
+        // 顶层文档(无父目录)跳过领域校验,domain 为空
+        let result = cmd_add(
+            &mut db,
+            &root,
+            "top.md",
+            "zoloz/zoloz.md",
+            None,
+            "top", vec!["tag1".to_string()],
+            "top body"
+        );
+        assert!(result.is_ok());
+        // 顶层文档 domain 字段为空
+        let text = read_doc(&root, "top.md");
+        let (fm, _, _) = parse_frontmatter(&text);
+        assert_eq!(fm.domain, "");
+    }
     // ===== cmd_update =====
 
     #[test]
@@ -1486,6 +1507,8 @@ mod tests {
         let (fm, _, has_fm) = parse_frontmatter(&text);
         assert!(has_fm);
         assert_eq!(fm.domain, "zoloz");
+        // tags 为空时默认 [basename]
+        assert_eq!(fm.tags, vec!["zoloz".to_string()]);
     }
 
     #[test]
@@ -1676,9 +1699,8 @@ mod tests {
     #[test]
     fn test_rename_domain_to_nested_path() {
         let (_dir, root, mut db) = setup_kb_with_docs();
-        // 创建父目录目标
-        cmd_create_domain(&root, "parent", "parent", vec![], "p").unwrap();
-        // rename zoloz -> parent/zoloz (嵌套路径,父目录已存在)
+        // 不预创建 parent,验证 rename 自动创建父目录分支
+        // rename zoloz -> parent/zoloz (嵌套路径,父目录不存在时自动创建)
         let result = cmd_rename_domain(&mut db, &root, "zoloz", "parent/zoloz");
         assert!(result.is_ok());
         assert!(Path::new(&root).join("parent/zoloz/zoloz.md").exists());

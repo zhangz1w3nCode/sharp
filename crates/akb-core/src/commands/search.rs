@@ -588,6 +588,20 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[test]
+    fn test_show_top_level_doc_domain_empty() {
+        let (_dir, root, _db) = setup_ab_chain();
+        // 顶层文档(无斜杠),domain 从路径推导为空
+        write_doc(
+            &root,
+            "top.md",
+            "---\nname: top\nsummary: s\ntags: []\nstatus: validated\n---\nbody",
+        );
+        let result = cmd_show(&root, "top.md", false);
+        let v = result.unwrap();
+        assert_eq!(v["frontmatter"]["domain"], "");
+    }
+
     // ===== cmd_domains =====
 
     #[test]
