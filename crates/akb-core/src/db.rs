@@ -818,5 +818,52 @@ mod tests {
         // repair_stale 应清理指向 pending B 的 link
         assert!(db.outlinks("a.md").unwrap().is_empty(), "repair_stale 后不应有指向 pending 的 link");
         assert!(db.all_links().unwrap().is_empty(), "links 表应为空");
+        db.repair_stale(&root).unwrap();
+
+        // repair_stale 应清理指向 pending B 的 link
+        assert!(db.outlinks("a.md").unwrap().is_empty(), "repair_stale 后不应有指向 pending 的 link");
+        assert!(db.all_links().unwrap().is_empty(), "links 表应为空");
+    }
+
+    #[test]
+    fn test_upsert_derives_domain_from_path() {
+        let (_dir, root) = tmp_kb();
+        // 文档 frontmatter 中没有 domain 字段(旧文档迁移场景)
+        write_doc(
+            &root,
+            "zoloz/pay/invoice.md",
+            "---\nname: invoice\nsummary: s\ntags: []\nstatus: validated\n---\nbody",
+        );
+        let mut db = IndexDb::open(&root).unwrap();
+        db.full_rebuild(&root).unwrap();
+        // domain 从路径推导 = zoloz/pay(父目录),不依赖 frontmatter
+        let docs = db.all_docs_meta().unwrap();
+        let doc = docs.iter().find(|d| d.path == "zoloz/pay/invoice.md").unwrap();
+        assert_eq!(doc.domain, "zoloz/pay");
+        // 顶层文档 domain 为空
+        write_doc(
+            &root,
+            "top.md",
+            "---\nname: top\nsummary: s\ntags: []\nstatus: validated\n---\nbody",
+        );
+        db.full_rebuild(&root).unwrap();
+        let docs = db.all_docs_meta().unwrap();
+        let top = docs.iter().find(|d| d.path == "top.md").unwrap();
+        assert_eq!(top.domain, "");
+    }
+
+    #[test]
+    fn test_schema_version_is_6() {
+        let (_dir, root) = tmp_kb();
+        write_doc(&root, "a.md", "---\nname: a\nsummary: s\ntags: []\nstatus: validated\n---\nbody");
+        let db = IndexDb::open(&root).unwrap();
+        let version: String = db.conn()
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'schema_version'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(version, "6");
     }
 }

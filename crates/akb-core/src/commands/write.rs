@@ -839,7 +839,7 @@ pub fn cmd_rename_domain(
     let new_basename = new.rsplit('/').next().unwrap_or(&new).to_string();
     let old_root_doc = new_dir.join(format!("{}.md", old_basename));
     let new_root_doc = new_dir.join(format!("{}.md", new_basename));
-    if old_root_doc.exists() && old_root_doc != new_root_doc {
+    if old_root_doc.exists() {
         // 读取根文档并更新 frontmatter name/domain
         let text = match std::fs::read_to_string(&old_root_doc) {
             Ok(t) => t,
@@ -858,8 +858,11 @@ pub fn cmd_rename_domain(
             if let Err(e) = std::fs::write(&new_root_doc, new_text) {
                 return Err(KbError::Other(format!("writing root doc: {}", e)));
             }
-            if let Err(e) = std::fs::remove_file(&old_root_doc) {
-                return Err(KbError::Other(format!("removing old root doc: {}", e)));
+            // 路径不同才删除旧文件(same-path 时已覆盖)
+            if old_root_doc != new_root_doc {
+                if let Err(e) = std::fs::remove_file(&old_root_doc) {
+                    return Err(KbError::Other(format!("removing old root doc: {}", e)));
+                }
             }
         }
     }
@@ -1518,6 +1521,42 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[test]
+    fn test_create_domain_empty_summary() {
+        let (_dir, root) = setup_kb();
+        let result = cmd_create_domain(&root, "zoloz", "", vec![], "c");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("summary is required"));
+        // 校验输入在前,不应留下空目录
+        assert!(!Path::new(&root).join("zoloz").exists());
+    }
+
+    #[test]
+    fn test_create_domain_dir_exists_warning() {
+        let (_dir, root) = setup_kb();
+        // 目录已存在(但没有根文档)
+        std::fs::create_dir_all(Path::new(&root).join("zoloz")).unwrap();
+        // 目录已存在 → warning 而非报错
+        let result = cmd_create_domain(&root, "zoloz", "s2", vec![], "c2");
+        assert!(result.is_ok());
+        let v = result.unwrap();
+        let warnings = v["warnings"].as_array().unwrap();
+        assert!(warnings.iter().any(|w| w.as_str().unwrap().contains("already exists")));
+        // 根文档仍被创建
+        assert!(Path::new(&root).join("zoloz/zoloz.md").exists());
+    }
+
+    #[test]
+    fn test_create_domain_root_doc_exists_error() {
+        let (_dir, root) = setup_kb();
+        write_doc(&root, "zoloz/zoloz.md", "existing");
+        let result = cmd_create_domain(&root, "zoloz", "s", vec![], "c");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("root doc already exists"));
+    }
+
     // ===== add 领域校验 =====
 
     #[test]
@@ -1625,5 +1664,61 @@ mod tests {
         cmd_create_domain(&root, "target", "target", vec![], "body").unwrap();
         let result = cmd_rename_domain(&mut db, &root, "zoloz", "target");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_rename_domain_empty_args() {
+        let (_dir, root, mut db) = setup_kb_with_docs();
+        assert!(cmd_rename_domain(&mut db, &root, "", "new").is_err());
+        assert!(cmd_rename_domain(&mut db, &root, "zoloz", "").is_err());
+    }
+
+    #[test]
+    fn test_rename_domain_to_nested_path() {
+        let (_dir, root, mut db) = setup_kb_with_docs();
+        // 创建父目录目标
+        cmd_create_domain(&root, "parent", "parent", vec![], "p").unwrap();
+        // rename zoloz -> parent/zoloz (嵌套路径,父目录已存在)
+        let result = cmd_rename_domain(&mut db, &root, "zoloz", "parent/zoloz");
+        assert!(result.is_ok());
+        assert!(Path::new(&root).join("parent/zoloz/zoloz.md").exists());
+        // 根文档 basename 不变(zoloz),name/domain 更新为 parent/zoloz
+        let text = read_doc(&root, "parent/zoloz/zoloz.md");
+        let (fm, _, _) = parse_frontmatter(&text);
+        assert_eq!(fm.domain, "parent/zoloz");
+    }
+
+    #[test]
+    fn test_update_preserves_domain() {
+        let (_dir, root, mut db) = setup_kb_with_docs();
+        cmd_add(
+            &mut db,
+            &root,
+            "zoloz/sub.md",
+            "zoloz/zoloz.md",
+            None,
+            "sub",
+            vec!["tag1".to_string()],
+            "sub body"
+        ).unwrap();
+        cmd_review(&mut db, &root, "zoloz/sub.md").unwrap();
+        // update 只改 content,domain 应保留
+        cmd_update(
+            &mut db,
+            &root,
+            "zoloz/sub.md",
+            Some("new body"),
+            None,
+            None,
+            None,
+            vec![],
+            false,
+            None,
+            None,
+        ).unwrap();
+        // update 后 status 回退 pending,文档不在索引中;直接读文件验证 domain 保留
+        let text = read_doc(&root, "zoloz/sub.md");
+        let (fm, _, _) = parse_frontmatter(&text);
+        assert_eq!(fm.domain, "zoloz");
     }
 }

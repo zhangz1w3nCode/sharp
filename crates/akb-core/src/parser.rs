@@ -534,4 +534,16 @@ mod tests {
         assert_eq!(fm.tags.len(), 0);
         assert_eq!(body, text);
     }
+
+    #[test]
+    fn test_parse_frontmatter_manual_domain() {
+        // 直接触发手写回退解析器,验证 domain key 解析
+        let fm = parse_frontmatter_manual("name: a\nsummary: s\ndomain: zoloz/pay\ntags: []\nstatus: validated");
+        assert_eq!(fm.domain, "zoloz/pay");
+        assert_eq!(fm.name, "a");
+        assert_eq!(fm.status, "validated");
+        // 旧格式 category 不应被解析为 domain
+        let fm2 = parse_frontmatter_manual("name: a\nsummary: s\ncategory: old\nstatus: pending");
+        assert_eq!(fm2.domain, "");
+    }
 }

@@ -615,4 +615,31 @@ mod tests {
         let subs = v["sub_domains"].as_array().unwrap();
         assert_eq!(subs.len(), 0);
     }
+
+    #[test]
+    fn test_domains_sub_domains_nonempty() {
+        let (_dir, root, mut db) = setup_ab_chain();
+        // 创建子领域下的文档
+        write_doc(
+            &root,
+            "zoloz/pay/invoice.md",
+            "---\nname: invoice\nsummary: s\ntags: []\nstatus: validated\n---\nbody",
+        );
+        db.upsert_doc(&root, "zoloz/pay/invoice.md").unwrap();
+        let v = cmd_domains(&mut db, &root, Some("zoloz")).unwrap();
+        let subs = v["sub_domains"].as_array().unwrap();
+        assert!(subs.iter().any(|s| s == "pay"));
+        assert_eq!(v["total"], 1);
+    }
+
+    #[test]
+    fn test_show_domain_field() {
+        let (_dir, root, _db) = setup_ab_chain();
+        let result = cmd_show(&root, "zoloz/a.md", false);
+        let v = result.unwrap();
+        // domain 从路径推导 = zoloz(父目录)
+        assert_eq!(v["frontmatter"]["domain"], "zoloz");
+        // 不包含 category 字段
+        assert!(v["frontmatter"].get("category").is_none());
+    }
 }
