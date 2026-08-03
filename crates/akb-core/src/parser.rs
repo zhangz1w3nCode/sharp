@@ -17,7 +17,7 @@ static WIKILINK_RE: OnceLock<Regex> = OnceLock::new();
 
 fn wikilink_re() -> &'static Regex {
     WIKILINK_RE.get_or_init(|| {
-        Regex::new(r"\[\[\s*`?([^`|\]]+?)`?(?:\|([^\]]+?))?\s*\]\]")
+        Regex::new(r"\[\[\s*(`?)([^`|\]]+?)(`?)(?:\|([^\]]+?))?\s*\]\]")
             .expect("WIKILINK_RE: 静态正则,编译期可验证,不会失败")
     })
 }
@@ -138,8 +138,8 @@ pub fn parse_wikilinks(text: &str, kb_root: &str) -> Vec<(String, Option<String>
     let mut results: Vec<(String, Option<String>)> = Vec::new();
     let mut seen: HashSet<(String, Option<String>)> = HashSet::new();
     for caps in wikilink_re().captures_iter(text) {
-        let raw_path = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-        let relation: Option<String> = match caps.get(2) {
+        let raw_path = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+        let relation: Option<String> = match caps.get(4) {
             None => None,
             Some(m) => {
                 let l = m.as_str().trim().to_string();
@@ -178,8 +178,10 @@ pub fn rewrite_wikilink_paths(text: &str, kb_root: &str, old: &str, new: &str) -
     let new_with_slash = format!("{}/", new);
     wikilink_re()
         .replace_all(text, |caps: &regex::Captures| {
-            let raw_path = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-            let relation = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+            let pre_backtick = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+            let raw_path = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+            let post_backtick = caps.get(3).map(|m| m.as_str()).unwrap_or("");
+            let relation = caps.get(4).map(|m| m.as_str()).unwrap_or("");
             // 去掉反引号和 .knowledges/ 前缀,归一化后判断
             let norm = normalize_path(raw_path, kb_root);
             let rewritten: String = if norm == old {
@@ -192,9 +194,9 @@ pub fn rewrite_wikilink_paths(text: &str, kb_root: &str, old: &str, new: &str) -
                 raw_path.to_string()
             };
             if relation.is_empty() {
-                format!("[[{}]]", rewritten)
+                format!("[[{}{}{}]]", pre_backtick, rewritten, post_backtick)
             } else {
-                format!("[[{}|{}]]", rewritten, relation)
+                format!("[[{}{}{}|{}]]", pre_backtick, rewritten, post_backtick, relation)
             }
         })
         .into_owned()
@@ -594,5 +596,19 @@ mod tests {
         // 未知字段不应被解析为 domain
         let fm2 = parse_frontmatter_manual("name: a\nsummary: s\nunknown_field: old\nstatus: pending");
         assert_eq!(fm2.domain, "");
+    }
+
+    #[test]
+    fn test_rewrite_wikilink_preserves_backticks() {
+        // 带反引号的合法链接,重写后必须保留反引号格式
+        let text = "[[zoloz/sub.md]]\n[[`zoloz/sub.md`]]\n[[`.knowledges/zoloz/sub.md`]]\n[[zoloz/sub.md|关系]]\n[[`zoloz/sub.md`|关系]]\n正文里的 zoloz/sub.md 不应被碰";
+        let out = rewrite_wikilink_paths(text, ".knowledges", "zoloz", "newd");
+        assert!(out.contains("[[newd/sub.md]]"));
+        assert!(out.contains("[[`newd/sub.md`]]"));
+        assert!(out.contains("[[`.knowledges/newd/sub.md`]]"));
+        assert!(out.contains("[[newd/sub.md|关系]]"));
+        assert!(out.contains("[[`newd/sub.md`|关系]]"));
+        // 正文普通文本不重写
+        assert!(out.contains("正文里的 zoloz/sub.md 不应被碰"));
     }
 }

@@ -172,7 +172,10 @@ pub fn cmd_init(
         return Err(KbError::Other("domain name is empty".into()));
     }
     if domain.split('/').any(|seg| seg == ".." || seg == "." || seg.is_empty()) {
-        return Err(KbError::Other("invalid domain name: {}".into()));
+        return Err(KbError::Other(format!("invalid domain name: {}", domain)));
+    }
+    if domain.contains('/') {
+        return Err(KbError::Other("init only supports top-level domain (use 'akb create domain' for nested)".into()));
     }
     let mut created: Vec<String> = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
@@ -835,8 +838,14 @@ pub fn cmd_rename_domain(
     if old.is_empty() {
         return Err(KbError::Other("old domain name is empty".into()));
     }
+    if old.split('/').any(|seg| seg == ".." || seg == "." || seg.is_empty()) {
+        return Err(KbError::Other("invalid old domain path".into()));
+    }
     if new.is_empty() {
         return Err(KbError::Other("new domain name is empty".into()));
+    }
+    if new.split('/').any(|seg| seg == ".." || seg == "." || seg.is_empty()) {
+        return Err(KbError::Other("invalid new domain path".into()));
     }
     let old_dir = abs_path(kb_root_abs, &old);
     if !old_dir.is_dir() {
@@ -846,11 +855,14 @@ pub fn cmd_rename_domain(
     if new_dir.exists() {
         return Err(KbError::Other(format!("target domain already exists: {}", new)));
     }
-    // 确保 new 的父目录存在
-    if let Some(parent) = new_dir.parent() {
-        if !parent.is_dir() {
-            if let Err(e) = std::fs::create_dir_all(parent) {
-                return Err(KbError::Other(format!("creating parent dir: {}", e)));
+    // 校验 new 的父领域存在:除最后一段外,每一级父目录必须已存在(与 create-domain 一致)
+    let parts: Vec<&str> = new.split('/').collect();
+    if parts.len() > 1 {
+        let mut cur = String::new();
+        for seg in &parts[..parts.len() - 1] {
+            cur = if cur.is_empty() { seg.to_string() } else { format!("{}/{}", cur, seg) };
+            if !abs_path(kb_root_abs, &cur).is_dir() {
+                return Err(KbError::Other(format!("parent domain not found: {} (create it first with 'akb create domain {}')", cur, cur)));
             }
         }
     }
@@ -890,7 +902,7 @@ pub fn cmd_rename_domain(
             }
         }
     }
-    // 重写所有文档中指向旧路径的 wiki-link: old/... -> new/...
+    // 重写所有文档中指向旧路径的 wiki-link + 同步 frontmatter domain: old/... -> new/...
     {
         let files = scan_files(kb_root_abs);
         for file in &files {
@@ -909,6 +921,21 @@ pub fn cmd_rename_domain(
             new_text = new_text.replace(&old_root_bare, &new_root_bare);
             // 3. 结构性重写剩余 wiki-link(带/不带 .knowledges/ 前缀都处理)
             new_text = rewrite_wikilink_paths(&new_text, ".knowledges", &old, &new);
+            // 4. frontmatter 的 domain 从新路径推导:只同步被 rename 领域内的文档(领域外文档不动)
+            if file.starts_with(&format!("{}/", new)) {
+                let expected_domain = file.rsplit_once('/').map(|(d, _)| d.to_string()).unwrap_or_default();
+                let (fm, body, has_fm) = parse_frontmatter(&new_text);
+                if has_fm && fm.domain != expected_domain {
+                    let frontmatter = build_frontmatter(
+                        &fm.name,
+                        &fm.summary,
+                        &expected_domain,
+                        &fm.tags.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                        &fm.status,
+                    )?;
+                    new_text = assemble_doc(&frontmatter, &body);
+                }
+            }
             if new_text != text {
                 if let Err(e) = std::fs::write(&file_abs, new_text) {
                     return Err(KbError::Other(format!("rewriting links in {}: {}", file, e)));
@@ -1030,6 +1057,16 @@ mod tests {
         let (_dir, root) = setup_kb();
         let result = cmd_init(&root, "", "s", vec![], "c");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_init_rejects_nested_domain() {
+        let (_dir, root) = setup_kb();
+        // init 只允许顶层领域,嵌套领域走 create-domain
+        let result = cmd_init(&root, "a/b", "s", vec![], "c");
+        assert!(result.is_err());
+        // 校验在创建目录之前,不残留 a/ 目录
+        assert!(!Path::new(&root).join("a").exists());
     }
 
     #[test]
@@ -1722,6 +1759,10 @@ mod tests {
         // 子文档的 domain 从路径推导(= newdomain)
         let sub_doc = docs.iter().find(|d| d.path == "newdomain/sub.md").unwrap();
         assert_eq!(sub_doc.domain, "newdomain");
+        // 子文档 frontmatter 的 domain 字段同步更新为 newdomain
+        let sub_text = std::fs::read_to_string(abs_path(&root, "newdomain/sub.md")).unwrap();
+        let (sub_fm, _, _) = parse_frontmatter(&sub_text);
+        assert_eq!(sub_fm.domain, "newdomain");
         // wiki-link 重写:子文档链接已改为 newdomain/sub.md
         let other_new_text = std::fs::read_to_string(&other_doc).unwrap();
         // 子文档链接(带/不带前缀)都重写
@@ -1731,6 +1772,9 @@ mod tests {
         assert!(other_new_text.contains("newdomain/newdomain.md"));
         assert!(!other_new_text.contains("newdomain/zoloz.md"));
         assert!(!other_new_text.contains("zoloz"));
+        // 领域外文档 frontmatter 不被修改(domain 保持原值)
+        let (other_fm, _, _) = parse_frontmatter(&other_new_text);
+        assert_eq!(other_fm.domain, "other");
     }
 
     #[test]
@@ -1759,17 +1803,37 @@ mod tests {
     #[test]
     fn test_rename_domain_to_nested_path() {
         let (_dir, root, mut db) = setup_kb_with_docs();
-        // 不预创建 parent,验证 rename 自动创建父目录分支
-        // rename zoloz -> parent/zoloz (嵌套路径,父目录不存在时自动创建)
+        // 父领域不存在时嵌套 rename 必须拒绝(与 create-domain 一致)
+        let result = cmd_rename_domain(&mut db, &root, "zoloz", "parent/zoloz");
+        assert!(result.is_err());
+        let msg = result.err().unwrap().to_string();
+        assert!(msg.contains("parent domain not found"), "got: {}", msg);
+        // 目录未被移动
+        assert!(Path::new(&root).join("zoloz/zoloz.md").exists());
+        assert!(!Path::new(&root).join("parent").exists());
+        // 父领域存在时嵌套 rename 成功,根文档 basename 不变,domain 更新
+        cmd_create_domain(&root, "parent", "parent", vec![], "body").unwrap();
         let result = cmd_rename_domain(&mut db, &root, "zoloz", "parent/zoloz");
         assert!(result.is_ok());
         assert!(Path::new(&root).join("parent/zoloz/zoloz.md").exists());
-        // 根文档 basename 不变(zoloz),name/domain 更新为 parent/zoloz
         let text = read_doc(&root, "parent/zoloz/zoloz.md");
         let (fm, _, _) = parse_frontmatter(&text);
         assert_eq!(fm.domain, "parent/zoloz");
     }
 
+    #[test]
+    fn test_rename_domain_rejects_path_traversal() {
+        let (_dir, root, mut db) = setup_kb_with_docs();
+        // old/new 含 .. 或 . 段必须拒绝,防止目录逃逸出 KB 根目录
+        assert!(cmd_rename_domain(&mut db, &root, "../escape", "new").is_err());
+        assert!(cmd_rename_domain(&mut db, &root, "zoloz", "../escape").is_err());
+        assert!(cmd_rename_domain(&mut db, &root, "zoloz", "../../escape").is_err());
+        assert!(cmd_rename_domain(&mut db, &root, "zoloz", "./escape").is_err());
+        assert!(cmd_rename_domain(&mut db, &root, "zoloz", "a//b").is_err());
+        // 目录未被移动,KB 结构保持
+        assert!(Path::new(&root).join("zoloz/zoloz.md").exists());
+        assert!(!Path::new(&root).join("../escape").exists());
+    }
     #[test]
     fn test_update_preserves_domain() {
         let (_dir, root, mut db) = setup_kb_with_docs();

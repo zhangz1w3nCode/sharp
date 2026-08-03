@@ -825,11 +825,6 @@ mod tests {
         // repair_stale 应清理指向 pending B 的 link
         assert!(db.outlinks("a.md").unwrap().is_empty(), "repair_stale 后不应有指向 pending 的 link");
         assert!(db.all_links().unwrap().is_empty(), "links 表应为空");
-        db.repair_stale(&root).unwrap();
-
-        // repair_stale 应清理指向 pending B 的 link
-        assert!(db.outlinks("a.md").unwrap().is_empty(), "repair_stale 后不应有指向 pending 的 link");
-        assert!(db.all_links().unwrap().is_empty(), "links 表应为空");
     }
 
     #[test]

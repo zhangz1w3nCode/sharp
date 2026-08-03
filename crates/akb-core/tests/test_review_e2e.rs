@@ -95,9 +95,6 @@ fn test_review_restores_links() {
     // 6. child's inlinks include root (link restored)
     let in_ = db.inlinks("test/child.md").unwrap();
     assert!(in_.iter().any(|(s, _)| s == "test/test.md"), "child should have inlink from root after review");
-    // 6. child's inlinks include root (link restored)
-    let in_ = db.inlinks("test/child.md").unwrap();
-    assert!(in_.iter().any(|(s, _)| s == "test/test.md"), "child should have inlink from root after review");
 }
 
 #[test]

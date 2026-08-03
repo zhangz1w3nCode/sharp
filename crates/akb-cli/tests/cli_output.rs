@@ -698,6 +698,11 @@ fn test_cli_rename_domain() {
     let other_new_text = std::fs::read_to_string(&other_doc).unwrap();
     assert!(other_new_text.contains("renamed/renamed.md"));
     assert!(!other_new_text.contains("testdomain/"));
+    // 子文档 frontmatter domain 同步更新(从新路径推导)
+    let sub_text = std::fs::read_to_string(
+        std::path::Path::new(kb_root).join("renamed/sub/sub.md")
+    ).unwrap();
+    assert!(sub_text.contains("domain: renamed/sub"));
 }
 
 #[test]
