@@ -71,15 +71,20 @@ pub struct IndexStatus {
 
 impl IndexDb {
     /// 打开或创建索引文件。
-    pub fn open(kb_root_abs: &str) -> Result<Self, rusqlite::Error> {
+    /// 打开或创建索引文件。版本迁移时自动重建索引避免空库。
+    pub fn open(kb_root_abs: &str) -> Result<Self, KbError> {
         let index_path = Path::new(kb_root_abs).join(".akb_index.sqlite");
-        let conn = Connection::open(&index_path)?;
-        let db = IndexDb { conn, index_path };
-        db.ensure_schema()?;
+        let conn = Connection::open(&index_path).map_err(KbError::Sqlite)?;
+        let mut db = IndexDb { conn, index_path };
+        let migrated = db.ensure_schema().map_err(KbError::Sqlite)?;
+        // 版本迁移后索引为空,自动重建避免读命令看到空库
+        if migrated {
+            db.full_rebuild(kb_root_abs).map_err(|e| KbError::Other(format!("index rebuild after migration: {}", e)))?;
+        }
         Ok(db)
     }
 
-    fn ensure_schema(&self) -> Result<(), rusqlite::Error> {
+    fn ensure_schema(&self) -> Result<bool, rusqlite::Error> {
         // 先建 meta 表,读取 schema_version
         self.conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS meta (
@@ -97,8 +102,10 @@ impl IndexDb {
             .optional()?
             .unwrap_or_else(|| "0".to_string());
 
+        let mut migrated = false;
         // schema v6: docs 表新增 domain 列,版本不匹配时重建
         if current_version != "6" {
+            migrated = true;
             self.conn.execute_batch(
                 "DROP TRIGGER IF EXISTS docs_ai;
                  DROP TRIGGER IF EXISTS docs_ad;
@@ -175,9 +182,9 @@ impl IndexDb {
             INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '6');
 
             ANALYZE;
-            ",
+            "
         )?;
-        Ok(())
+        Ok(migrated)
     }
 
     /// 全量重建索引。
@@ -865,5 +872,39 @@ mod tests {
             )
             .unwrap();
         assert_eq!(version, "6");
+    }
+
+    #[test]
+    fn test_open_migrates_v5_and_rebuilds() {
+        let (_dir, root) = tmp_kb();
+        write_doc(&root, "zoloz/zoloz.md", "---\nname: zoloz\nsummary: s\ntags: []\nstatus: validated\n---\nbody");
+        // 先用正常方式建 v6 库并索引
+        {
+            let mut db = IndexDb::open(&root).unwrap();
+            db.full_rebuild(&root).unwrap();
+        }
+        // 模拟 v5 库:改 schema_version 为 5 + docs 表改回 category 列
+        {
+            let conn = rusqlite::Connection::open(Path::new(&root).join(".akb_index.sqlite")).unwrap();
+            conn.execute("UPDATE meta SET value='5' WHERE key='schema_version'", []).unwrap();
+            conn.execute("ALTER TABLE docs RENAME TO docs_v6", []).unwrap();
+            conn.execute(
+                "CREATE TABLE docs (path TEXT PRIMARY KEY, name TEXT NOT NULL, summary TEXT NOT NULL, heading TEXT NOT NULL, body TEXT NOT NULL, tags_text TEXT NOT NULL, category TEXT NOT NULL, has_frontmatter INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', mtime_secs INTEGER NOT NULL, mtime_nanos INTEGER NOT NULL, size_bytes INTEGER NOT NULL)",
+                [],
+            ).unwrap();
+            conn.execute("INSERT INTO docs SELECT path, name, summary, heading, body, tags_text, '', has_frontmatter, status, mtime_secs, mtime_nanos, size_bytes FROM docs_v6", []).unwrap();
+            conn.execute("DROP TABLE docs_v6", []).unwrap();
+        }
+        // 用新代码 open:应自动迁移到 v6 并重建索引
+        let db = IndexDb::open(&root).unwrap();
+        let version: String = db.conn()
+            .query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, "6");
+        // 索引已重建
+        let docs = db.all_docs_meta().unwrap();
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].path, "zoloz/zoloz.md");
+        assert_eq!(docs[0].domain, "zoloz");
     }
 }

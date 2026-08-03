@@ -124,6 +124,10 @@ pub fn normalize_path(raw: &str, kb_root: &str) -> String {
     while s.starts_with('/') && s.len() > 1 {
         s = s[1..].to_string();
     }
+    // 拒绝路径穿越:任何段为 .. 或 . 视为非法,返回空串
+    if s.split('/').any(|seg| seg == ".." || seg == ".") {
+        return String::new();
+    }
     s
 }
 
@@ -158,6 +162,51 @@ pub fn parse_wikilinks(text: &str, kb_root: &str) -> Vec<(String, Option<String>
         results.push((target, relation));
     }
     results
+}
+
+/// 重写文档中所有 wiki-link 的路径
+///
+/// 结构性替换:只改 [[...]] 内的路径文本,不动正文其他内容。
+/// 支持带 `.knowledges/` 前缀与不带前缀两种形态,关系标签保留。
+pub fn rewrite_wikilink_paths(text: &str, kb_root: &str, old: &str, new: &str) -> String {
+    let old = old.trim().trim_matches('/');
+    let new = new.trim().trim_matches('/');
+    if old.is_empty() {
+        return text.to_string();
+    }
+    let old_with_slash = format!("{}/", old);
+    let new_with_slash = format!("{}/", new);
+    wikilink_re()
+        .replace_all(text, |caps: &regex::Captures| {
+            let raw_path = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+            let relation = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+            // 去掉反引号和 .knowledges/ 前缀,归一化后判断
+            let norm = normalize_path(raw_path, kb_root);
+            let rewritten: String = if norm == old {
+                let (pre, _suffix) = split_prefix(raw_path, old);
+                format!("{}{}", pre, new)
+            } else if norm.starts_with(&old_with_slash) {
+                let (pre, suffix) = split_prefix(raw_path, &old_with_slash);
+                format!("{}{}{}", pre, new_with_slash, suffix)
+            } else {
+                raw_path.to_string()
+            };
+            if relation.is_empty() {
+                format!("[[{}]]", rewritten)
+            } else {
+                format!("[[{}|{}]]", rewritten, relation)
+            }
+        })
+        .into_owned()
+}
+
+/// 把 raw 按 prefix 拆分:返回 (prefix 之前的文本, prefix 之后的文本)。
+/// 用于在 wiki-link 原文本中定位 old 段的位置。
+fn split_prefix<'a>(raw: &'a str, prefix: &str) -> (&'a str, &'a str) {
+    match raw.find(prefix) {
+        Some(idx) => (&raw[..idx], &raw[idx + prefix.len()..]),
+        None => ("", raw),
+    }
 }
 
 /// 解析 YAML 行内数组,支持双引号/单引号包裹的元素(元素内可含逗号)。
