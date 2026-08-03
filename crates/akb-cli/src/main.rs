@@ -89,8 +89,37 @@ enum Commands {
     Init(InitArgs),
     /// 健康检查(详细)
     Doctor,
+    /// 创建领域/子领域目录 + 根文档
+    CreateDomain(CreateDomainArgs),
+    /// 列出全部领域或指定领域下的子领域
+    Domains {
+        /// 领域名(省略则列全部领域)
+        domain: Option<String>,
+    },
+    /// 重命名领域目录
+    RenameDomain {
+        /// 旧领域路径
+        old: String,
+        /// 新领域路径
+        new: String,
+    },
     /// 知识库精简概览(文档数/tag/domains/health_score/last_modified)
     Stats,
+}
+
+#[derive(clap::Args)]
+struct CreateDomainArgs {
+    /// 领域/子领域路径(如 zoloz 或 zoloz/sub)
+    domain: String,
+    /// frontmatter summary(根文档摘要,必需)
+    #[arg(long)]
+    summary: String,
+    /// frontmatter tags(格式 [tag1,tag2,...],默认 [domain])
+    #[arg(long)]
+    tags: String,
+    /// 根文档正文内容
+    #[arg(long)]
+    content: String,
 }
 
 #[derive(clap::Args)]
@@ -123,9 +152,6 @@ struct AddArgs {
     /// frontmatter summary(文档摘要,必需)
     #[arg(long)]
     summary: String,
-    /// frontmatter category
-    #[arg(long)]
-    category: Option<String>,
     /// frontmatter tags(格式 [tag1,tag2,...],必需)
     #[arg(long)]
     tags: String,
@@ -141,9 +167,6 @@ struct InitArgs {
     /// frontmatter summary(根文档摘要,必需)
     #[arg(long)]
     summary: String,
-    /// frontmatter category(默认用 domain)
-    #[arg(long)]
-    category: Option<String>,
     /// frontmatter tags(格式 [tag1,tag2,...],默认 [domain])
     #[arg(long)]
     tags: String,
@@ -293,9 +316,9 @@ fn main() {
     };
 
     let kb_exists = Path::new(&kb_root_abs).is_dir();
-    // 只有 init 命令允许目录不存在
+    // 只有 init / create-domain 命令允许目录不存在
     if !kb_exists {
-        let is_init = matches!(cli.command, Commands::Init(_));
+        let is_init = matches!(cli.command, Commands::Init(_) | Commands::CreateDomain(_));
         if !is_init {
             output_json(&json!({
                 "error": format!("knowledge base directory not found: {}", kb_root_abs),
@@ -308,7 +331,14 @@ fn main() {
         Commands::Init(args) => match parse_tags(&args.tags) {
             Ok(tags) => write::cmd_init(
                 &kb_root_abs, &args.domain, &args.summary,
-                args.category.as_deref(), tags, &args.content,
+                tags, &args.content,
+            ),
+            Err(e) => Err(KbError::Other(e)),
+        },
+        Commands::CreateDomain(args) => match parse_tags(&args.tags) {
+            Ok(tags) => write::cmd_create_domain(
+                &kb_root_abs, &args.domain, &args.summary,
+                tags, &args.content,
             ),
             Err(e) => Err(KbError::Other(e)),
         },
@@ -331,7 +361,7 @@ fn main() {
                     match parse_tags(&args.tags) {
                         Ok(tags) => write::cmd_add(
                             &mut db, &kb_root_abs, &args.doc_path, &args.link_from, args.relation.as_deref(),
-                            &args.summary, args.category.as_deref(),
+                            &args.summary,
                             tags, &args.content,
                         ),
                         Err(e) => Err(KbError::Other(e)),
@@ -351,7 +381,10 @@ fn main() {
                 },
                 Commands::Doctor => health::cmd_doctor(&mut db, &kb_root_abs),
                 Commands::Stats => health::cmd_stats(&mut db, &kb_root_abs),
+                Commands::Domains { domain } => search::cmd_domains(&mut db, &kb_root_abs, domain.as_deref()),
+                Commands::RenameDomain { old, new } => write::cmd_rename_domain(&mut db, &kb_root_abs, &old, &new),
                 Commands::Init(_) => unreachable!(),
+                Commands::CreateDomain(_) => unreachable!(),
             }
         }
     };

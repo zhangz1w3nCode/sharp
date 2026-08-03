@@ -47,7 +47,7 @@ pub struct DocMeta {
     pub path: String,
     pub name: String,
     pub summary: String,
-    pub category: String,
+    pub domain: String,
     pub has_frontmatter: bool,
     pub status: String,
     pub tags: Vec<String>,
@@ -97,8 +97,8 @@ impl IndexDb {
             .optional()?
             .unwrap_or_else(|| "0".to_string());
 
-        // schema v5: links 表 label 列改名为 relation
-        if current_version != "5" {
+        // schema v6: docs 表 category 列改名为 domain
+        if current_version != "6" {
             self.conn.execute_batch(
                 "DROP TRIGGER IF EXISTS docs_ai;
                  DROP TRIGGER IF EXISTS docs_ad;
@@ -118,7 +118,7 @@ impl IndexDb {
                 heading TEXT NOT NULL,
                 body TEXT NOT NULL,
                 tags_text TEXT NOT NULL,
-                category TEXT NOT NULL,
+                domain TEXT NOT NULL,
                 has_frontmatter INTEGER NOT NULL,
                 status TEXT NOT NULL DEFAULT 'pending',
                 mtime_secs INTEGER NOT NULL,
@@ -172,7 +172,7 @@ impl IndexDb {
 
             PRAGMA foreign_keys = ON;
 
-            INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '5');
+            INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '6');
 
             ANALYZE;
             ",
@@ -296,6 +296,8 @@ impl IndexDb {
         let meta = file_stat(kb_root_abs, rel_path)
             .ok_or_else(|| KbError::Other(format!("stat failed: {}", rel_path)))?;
         let (fm, body, has_fm) = parse_frontmatter(&text);
+        // domain 从文档路径推导(single source of truth),不依赖 frontmatter
+        let domain = rel_path.rsplit_once('/').map(|(d, _)| d.to_string()).unwrap_or_default();
         let links = parse_wikilinks(&text, ".knowledges");
         let tags: Vec<String> = fm
             .tags
@@ -313,7 +315,7 @@ impl IndexDb {
 
         if fm.status == "validated" {
             tx.execute(
-                "INSERT INTO docs(path, name, summary, heading, body, tags_text, category, has_frontmatter, status, mtime_secs, mtime_nanos, size_bytes)
+                "INSERT INTO docs(path, name, summary, heading, body, tags_text, domain, has_frontmatter, status, mtime_secs, mtime_nanos, size_bytes)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
                  ON CONFLICT(path) DO UPDATE SET
                    name = excluded.name,
@@ -321,7 +323,7 @@ impl IndexDb {
                    heading = excluded.heading,
                    body = excluded.body,
                    tags_text = excluded.tags_text,
-                   category = excluded.category,
+                   domain = excluded.domain,
                    has_frontmatter = excluded.has_frontmatter,
                    status = excluded.status,
                    mtime_secs = excluded.mtime_secs,
@@ -334,7 +336,7 @@ impl IndexDb {
                     heading,
                     body,
                     tags_text,
-                    fm.category,
+                    domain,
                     if has_fm { 1 } else { 0 },
                     fm.status,
                     meta.0,
@@ -531,7 +533,7 @@ impl IndexDb {
     /// 全部文档元数据。
     pub fn all_docs_meta(&self) -> Result<Vec<DocMeta>, rusqlite::Error> {
         let mut stmt = self.conn.prepare(
-            "SELECT path, name, summary, category, has_frontmatter, status,
+            "SELECT path, name, summary, domain, has_frontmatter, status,
                     mtime_secs, mtime_nanos, size_bytes
              FROM docs ORDER BY path",
         )?;
@@ -540,7 +542,7 @@ impl IndexDb {
                 path: row.get(0)?,
                 name: row.get(1)?,
                 summary: row.get(2)?,
-                category: row.get(3)?,
+                domain: row.get(3)?,
                 has_frontmatter: row.get::<_, i64>(4)? != 0,
                 status: row.get::<_, String>(5)?,
                 tags: Vec::new(),

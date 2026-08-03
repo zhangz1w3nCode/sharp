@@ -39,7 +39,7 @@ fn inline_elem_re() -> &'static Regex {
 pub struct Frontmatter {
     pub name: String,
     pub summary: String,
-    pub category: String,
+    pub domain: String,
     pub tags: Vec<String>,
     pub status: String,
 }
@@ -49,7 +49,7 @@ impl Default for Frontmatter {
         Frontmatter {
             name: String::new(),
             summary: String::new(),
-            category: String::new(),
+            domain: String::new(),
             tags: Vec::new(),
             status: "pending".to_string(),
         }
@@ -63,7 +63,7 @@ pub struct ParsedDoc {
     pub path: String,
     pub name: String,
     pub summary: String,
-    pub category: String,
+    pub domain: String,
     pub tags: Vec<String>,
     /// (target, relation) 列表。
     pub outlinks: Vec<(String, Option<String>)>,
@@ -78,7 +78,7 @@ pub struct ParsedDoc {
 struct FmMapping {
     name: serde_yaml::Value,
     summary: serde_yaml::Value,
-    category: serde_yaml::Value,
+    domain: serde_yaml::Value,
     tags: serde_yaml::Value,
     status: serde_yaml::Value,
 }
@@ -88,7 +88,7 @@ impl Default for FmMapping {
         FmMapping {
             name: serde_yaml::Value::Null,
             summary: serde_yaml::Value::Null,
-            category: serde_yaml::Value::Null,
+            domain: serde_yaml::Value::Null,
             tags: serde_yaml::Value::Null,
             status: serde_yaml::Value::Null,
         }
@@ -271,7 +271,7 @@ pub fn parse_frontmatter(text: &str) -> (Frontmatter, String, bool) {
         Frontmatter {
             name: value_to_string(&m.name),
             summary: value_to_string(&m.summary),
-            category: value_to_string(&m.category),
+            domain: value_to_string(&m.domain),
             tags: value_to_tags(&m.tags),
             status: validate_status(&value_to_string(&m.status)),
         }
@@ -320,7 +320,7 @@ fn parse_frontmatter_manual(fm_text: &str) -> Frontmatter {
                     }
                     in_summary_multiline = false;
                 }
-                "name" | "summary" | "category" | "status" => {
+                "name" | "summary" | "domain" | "status" => {
                     if matches!(
                         value.as_str(),
                         "|" | "|-" | "|+" | ">" | ">-" | ">+"
@@ -368,7 +368,7 @@ fn parse_frontmatter_manual(fm_text: &str) -> Frontmatter {
                         match key.as_str() {
                             "name" => fm.name = trimmed,
                             "summary" => fm.summary = trimmed,
-                            "category" => fm.category = trimmed,
+                            "domain" => fm.domain = trimmed,
                             "status" => fm.status = validate_status(&trimmed),
                             _ => {}
                         }
@@ -378,7 +378,7 @@ fn parse_frontmatter_manual(fm_text: &str) -> Frontmatter {
                         match key.as_str() {
                             "name" => fm.name = v,
                             "summary" => fm.summary = v,
-                            "category" => fm.category = v,
+                            "domain" => fm.domain = v,
                             "status" => fm.status = validate_status(&v),
                             _ => {}
                         }
@@ -416,7 +416,7 @@ pub fn parse_doc(text: &str, doc_path: &str, kb_root: &str, with_body: bool) -> 
         path: doc_path.to_string(),
         name: fm.name,
         summary: fm.summary,
-        category: fm.category,
+        domain: fm.domain,
         tags: fm.tags,
         outlinks: links,
         body: if with_body { text.to_string() } else { String::new() },
@@ -489,12 +489,12 @@ mod tests {
 
     #[test]
     fn test_parse_frontmatter_yaml() {
-        let text = "---\nname: zoloz\nsummary: 摘要\ncategory: cat\ntags: [a, b]\n---\n正文内容";
+        let text = "---\nname: zoloz\nsummary: 摘要\ndomain: cat\ntags: [a, b]\n---\n正文内容";
         let (fm, body, has_fm) = parse_frontmatter(text);
         assert!(has_fm);
         assert_eq!(fm.name, "zoloz");
         assert_eq!(fm.summary, "摘要");
-        assert_eq!(fm.category, "cat");
+        assert_eq!(fm.domain, "cat");
         assert_eq!(fm.tags, vec!["a", "b"]);
         assert!(body.starts_with("正文内容"));
     }

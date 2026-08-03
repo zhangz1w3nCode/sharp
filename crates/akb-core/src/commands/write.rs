@@ -100,7 +100,7 @@ fn yaml_scalar(s: &str) -> String {
 fn build_frontmatter(
     name: &str,
     summary: &str,
-    category: &str,
+    domain: &str,
     tags: &[&str],
     status: &str,
 ) -> Result<String, KbError> {
@@ -114,7 +114,7 @@ fn build_frontmatter(
     let lines = [
         format!("name: {}", yaml_scalar(name)),
         format!("summary: {}", yaml_scalar(&summary)),
-        format!("category: {}", yaml_scalar(category)),
+        format!("domain: {}", yaml_scalar(domain)),
         format!("tags: {}", tags_str),
         format!("status: {}", yaml_scalar(status)),
     ];
@@ -164,7 +164,6 @@ pub fn cmd_init(
     kb_root_abs: &str,
     domain: &str,
     summary: &str,
-    category: Option<&str>,
     tags: Vec<String>,
     content: &str,
 ) -> Result<Value, KbError> {
@@ -201,7 +200,7 @@ pub fn cmd_init(
     if summary.is_empty() {
         return Err(KbError::Other("summary is required (use --summary)".into()));
     }
-    let category = category.unwrap_or(&domain).to_string();
+    // 根文档的 domain 字段 = 其父目录路径(即 domain 本身)
     let tags = if tags.is_empty() {
         vec![domain.clone()]
     } else {
@@ -210,7 +209,7 @@ pub fn cmd_init(
     let frontmatter = build_frontmatter(
         &name,
         summary,
-        &category,
+        &domain,
         &tags.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
         "pending",
     )?;
@@ -251,6 +250,110 @@ pub fn cmd_init(
     }))
 }
 
+/// kb create domain <domain-path> --summary <s> [--tags [t1,t2]] [--content <body>]
+///
+/// 创建领域/子领域目录 + 根文档。子领域必须基于已存在的父领域:
+/// domain-a/domain-b 中 domain-a 必须已存在,否则报错。
+/// 根文档 = <domain-path>/<basename>.md,domain 字段 = domain-path(父目录)。
+pub fn cmd_create_domain(
+    kb_root_abs: &str,
+    domain_path: &str,
+    summary: &str,
+    tags: Vec<String>,
+    content: &str,
+) -> Result<Value, KbError> {
+    let domain_path = domain_path.trim().trim_matches('/').to_string();
+    if domain_path.is_empty() {
+        return Err(KbError::Other("domain name is empty".into()));
+    }
+    if summary.is_empty() {
+        return Err(KbError::Other("summary is required (use --summary)".into()));
+    }
+    let mut created: Vec<String> = Vec::new();
+    let mut warnings: Vec<String> = Vec::new();
+    // .knowledges/ 根目录
+    if !Path::new(kb_root_abs).is_dir() {
+        if let Err(e) = std::fs::create_dir_all(kb_root_abs) {
+            return Err(KbError::Other(format!("creating kb root: {}", e)));
+        }
+        created.push("kb_root".to_string());
+    }
+    // 校验父领域存在:除最后一段外,每一级父目录都必须已存在
+    let parts: Vec<&str> = domain_path.split('/').collect();
+    if parts.len() > 1 {
+        let mut cur = String::new();
+        for seg in &parts[..parts.len() - 1] {
+            cur = if cur.is_empty() { seg.to_string() } else { format!("{}/{}", cur, seg) };
+            if !abs_path(kb_root_abs, &cur).is_dir() {
+                return Err(KbError::Other(format!(
+                    "parent domain not found: {} (create it first with 'akb create domain {}')",
+                    cur, cur
+                )));
+            }
+        }
+    }
+    // 领域目录
+    let domain_dir = abs_path(kb_root_abs, &domain_path);
+    if domain_dir.exists() {
+        warnings.push(format!("domain directory already exists: {}/", domain_path));
+    } else {
+        if let Err(e) = std::fs::create_dir_all(&domain_dir) {
+            return Err(KbError::Other(format!("creating domain dir: {}", e)));
+        }
+        created.push(format!("{}/", domain_path));
+    }
+    // 根文档: <domain-path>/<basename>.md
+    let basename = parts[parts.len() - 1].to_string();
+    let root_doc_rel = format!("{}/{}.md", domain_path, basename);
+    let root_doc_abs = domain_dir.join(format!("{}.md", basename));
+    if root_doc_abs.exists() {
+        return Err(KbError::Other(format!("root doc already exists: {}", root_doc_rel)));
+    }
+    let name = basename.clone();
+    let tags = if tags.is_empty() { vec![basename.clone()] } else { tags };
+    // domain 字段 = 文档的父目录路径(即 domain_path)
+    let frontmatter = build_frontmatter(
+        &name,
+        summary,
+        &domain_path,
+        &tags.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+        "pending",
+    )?;
+    let doc_content = assemble_doc(&frontmatter, content);
+    if let Err(e) = std::fs::write(&root_doc_abs, doc_content) {
+        return Err(KbError::Other(format!("writing root doc: {}", e)));
+    }
+    created.push(root_doc_rel);
+    // INDEX.md
+    let (total_documents, idx_err) = rebuild_index_md(kb_root_abs);
+    if let Some(e) = idx_err {
+        return Err(KbError::Other(e));
+    }
+    // 全量重建索引
+    let index_updated = match IndexDb::open(kb_root_abs) {
+        Ok(mut db) => match db.full_rebuild(kb_root_abs) {
+            Ok(_) => true,
+            Err(e) => {
+                warnings.push(format!("index rebuild failed: {}", e));
+                false
+            }
+        },
+        Err(e) => {
+            warnings.push(format!("index open failed: {}", e));
+            false
+        }
+    };
+    Ok(json!({
+        "domain": domain_path,
+        "kb_root": kb_root_abs,
+        "name": name,
+        "created": created,
+        "index_updated": index_updated,
+        "warnings": warnings,
+        "total_documents": total_documents,
+    }))
+}
+
 /// 单个文档创建逻辑(供 cmd_add 复用),不重建 INDEX。
 ///
 /// 返回 Ok(result_json) 或 Err(error_msg)。
@@ -261,7 +364,6 @@ fn add_single(
     content: &str,
     summary: &str,
     relation: Option<&str>,
-    category: Option<&str>,
     tags: Option<&[String]>,
 ) -> Result<AddOutcome, String> {
     let mut doc_path = normalize_path(doc_path, ".knowledges");
@@ -278,6 +380,21 @@ fn add_single(
     let parent_abs = abs_path(kb_root_abs, &parent);
     if !parent_abs.exists() {
         return Err(format!("parent document not found: {}", parent));
+    }
+    // 校验领域存在:doc_path 的每一级父目录(领域)都必须已存在
+    let parent_dir_str = doc_path.rsplit_once('/').map(|(d, _)| d.to_string()).unwrap_or_default();
+    if !parent_dir_str.is_empty() {
+        let mut missing: Vec<String> = Vec::new();
+        let mut cur = String::new();
+        for seg in parent_dir_str.split('/') {
+            cur = if cur.is_empty() { seg.to_string() } else { format!("{}/{}", cur, seg) };
+            if !abs_path(kb_root_abs, &cur).is_dir() {
+                missing.push(cur.clone());
+            }
+        }
+        if !missing.is_empty() {
+            return Err(format!("domain not found: {} (use 'akb create domain' to create it first)", missing.join(", ")));
+        }
     }
     // 创建目录
     let mut created_dirs: Vec<String> = Vec::new();
@@ -299,12 +416,13 @@ fn add_single(
     if summary.is_empty() {
         return Err("summary is required".to_string());
     }
-    let category = category.unwrap_or("").to_string();
+    // domain 字段 = 文档的父目录路径
+    let domain = parent_dir_str;
     let tags: Vec<String> = tags.map(|t| t.iter().map(|s| s.to_string()).collect()).unwrap_or_default();
     let frontmatter = build_frontmatter(
         &name,
         summary,
-        &category,
+        &domain,
         &tags.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
         "pending",
     )
@@ -352,12 +470,11 @@ pub fn cmd_add(
     link_from: &str,
     relation: Option<&str>,
     summary: &str,
-    category: Option<&str>,
     tags: Vec<String>,
     content: &str,
 ) -> Result<Value, KbError> {
     let o = match add_single(
-        kb_root_abs, doc_path, link_from, content, summary, relation, category, Some(&tags),
+        kb_root_abs, doc_path, link_from, content, summary, relation, Some(&tags),
     ) {
         Ok(o) => o,
         Err(e) => return Err(KbError::Other(e)),
@@ -519,7 +636,7 @@ pub fn cmd_update(
     let (fm, body, _has_fm) = parse_frontmatter(&text);
     let mut name_val = fm.name;
     let mut summary_val = fm.summary;
-    let category_val = fm.category;
+    let domain_val = fm.domain;
     let mut tags_val = fm.tags;
 
     let mut changes: Vec<String> = Vec::new();
@@ -588,7 +705,7 @@ pub fn cmd_update(
     let frontmatter = build_frontmatter(
         &name_val,
         &summary_val,
-        &category_val,
+        &domain_val,
         &tags_val.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
         "pending",
     )?;
@@ -633,7 +750,7 @@ pub fn cmd_review(
     let frontmatter = build_frontmatter(
         &fm.name,
         &fm.summary,
-        &fm.category,
+        &fm.domain,
         &fm.tags.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
         "validated",
     )?;
@@ -679,6 +796,122 @@ pub fn cmd_review(
     }))
 }
 
+/// kb rename domain <old> <new> — 重命名领域目录 + 根文档 + 更新索引。
+///
+/// 重命名目录 old -> new,迁移该目录下所有文档路径,
+/// 全量重建索引使新路径生效。
+pub fn cmd_rename_domain(
+    db: &mut IndexDb,
+    kb_root_abs: &str,
+    old: &str,
+    new: &str,
+) -> Result<Value, KbError> {
+    let old = old.trim().trim_matches('/').to_string();
+    let new = new.trim().trim_matches('/').to_string();
+    if old.is_empty() {
+        return Err(KbError::Other("old domain name is empty".into()));
+    }
+    if new.is_empty() {
+        return Err(KbError::Other("new domain name is empty".into()));
+    }
+    let old_dir = abs_path(kb_root_abs, &old);
+    if !old_dir.is_dir() {
+        return Err(KbError::Other(format!("domain not found: {}", old)));
+    }
+    let new_dir = abs_path(kb_root_abs, &new);
+    if new_dir.exists() {
+        return Err(KbError::Other(format!("target domain already exists: {}", new)));
+    }
+    // 确保 new 的父目录存在
+    if let Some(parent) = new_dir.parent() {
+        if !parent.is_dir() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                return Err(KbError::Other(format!("creating parent dir: {}", e)));
+            }
+        }
+    }
+    // 重命名目录
+    if let Err(e) = std::fs::rename(&old_dir, &new_dir) {
+        return Err(KbError::Other(format!("rename dir: {}", e)));
+    }
+    // 重命名根文档: <new>/<old_basename>.md -> <new>/<new_basename>.md
+    let old_basename = old.rsplit('/').next().unwrap_or(&old).to_string();
+    let new_basename = new.rsplit('/').next().unwrap_or(&new).to_string();
+    let old_root_doc = new_dir.join(format!("{}.md", old_basename));
+    let new_root_doc = new_dir.join(format!("{}.md", new_basename));
+    if old_root_doc.exists() && old_root_doc != new_root_doc {
+        // 读取根文档并更新 frontmatter name/domain
+        let text = match std::fs::read_to_string(&old_root_doc) {
+            Ok(t) => t,
+            Err(e) => return Err(KbError::Other(format!("reading root doc: {}", e))),
+        };
+        let (fm, body, has_fm) = parse_frontmatter(&text);
+        if has_fm {
+            let frontmatter = build_frontmatter(
+                &new_basename,
+                &fm.summary,
+                &new,
+                &fm.tags.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                &fm.status,
+            )?;
+            let new_text = assemble_doc(&frontmatter, &body);
+            if let Err(e) = std::fs::write(&new_root_doc, new_text) {
+                return Err(KbError::Other(format!("writing root doc: {}", e)));
+            }
+            if let Err(e) = std::fs::remove_file(&old_root_doc) {
+                return Err(KbError::Other(format!("removing old root doc: {}", e)));
+            }
+        }
+    }
+    // 重写所有文档中指向旧路径的 wiki-link: old/... -> new/...
+    {
+        let files = scan_files(kb_root_abs);
+        let old_prefix = format!("{}/", old);
+        let new_prefix = format!("{}/", new);
+        for file in &files {
+            let file_abs = abs_path(kb_root_abs, file);
+            let text = match std::fs::read_to_string(&file_abs) {
+                Ok(t) => t,
+                Err(_) => continue,
+            };
+            let links = parse_wikilinks(&text, ".knowledges");
+            let needs_rewrite = links.iter().any(|(target, _)| {
+                target.starts_with(&old_prefix) || target == &old
+            });
+            if !needs_rewrite {
+                continue;
+            }
+            // 1. 先替换根文档完整路径: old/old_basename.md -> new/new_basename.md
+            let old_root_link = format!(".knowledges/{}/{}.md", old, old_basename);
+            let new_root_link = format!(".knowledges/{}/{}.md", new, new_basename);
+            let new_text = text.replace(&old_root_link, &new_root_link);
+            // 2. 再做 prefix replacement: .knowledges/old/ -> .knowledges/new/
+            let new_text = new_text.replace(&format!(".knowledges/{}", old_prefix), &format!(".knowledges/{}", new_prefix));
+            if new_text != text {
+                if let Err(e) = std::fs::write(&file_abs, new_text) {
+                    return Err(KbError::Other(format!("rewriting links in {}: {}", file, e)));
+                }
+            }
+        }
+    }
+    // 重建 INDEX.md + 全量重建索引
+    let (total_documents, idx_err) = rebuild_index_md(kb_root_abs);
+    if let Some(e) = idx_err {
+        return Err(KbError::Other(e));
+    }
+    let index_updated = match db.full_rebuild(kb_root_abs) {
+        Ok(_) => true,
+        Err(e) => return Err(KbError::Other(format!("index rebuild failed: {}", e))),
+    };
+    Ok(json!({
+        "old": old,
+        "new": new,
+        "renamed": true,
+        "index_updated": index_updated,
+        "total_documents": total_documents,
+    }))
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -697,9 +930,7 @@ mod tests {
         let result = cmd_init(
             &root,
             "zoloz",
-            "root summary",
-            None,
-            vec![],
+            "root summary", vec![],
             "root content"
         );
         assert!(result.is_ok());
@@ -730,9 +961,7 @@ mod tests {
         let result = cmd_init(
             &root,
             "zoloz",
-            "zoloz summary",
-            None,
-            vec!["tag1".to_string()],
+            "zoloz summary", vec!["tag1".to_string()],
             "root body"
         );
         assert!(result.is_ok());
@@ -770,21 +999,21 @@ mod tests {
         let (_dir, root) = setup_kb();
         // 预先创建 root doc
         write_doc(&root, "zoloz/zoloz.md", "existing");
-        let result = cmd_init(&root, "zoloz", "s", None, vec![], "c");
+        let result = cmd_init(&root, "zoloz", "s", vec![], "c");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_init_empty_domain() {
         let (_dir, root) = setup_kb();
-        let result = cmd_init(&root, "", "s", None, vec![], "c");
+        let result = cmd_init(&root, "", "s", vec![], "c");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_init_default_name_tags() {
         let (_dir, root) = setup_kb();
-        let result = cmd_init(&root, "zoloz", "s", None, vec![], "c");
+        let result = cmd_init(&root, "zoloz", "s", vec![], "c");
         assert!(result.is_ok());
         let mut db = IndexDb::open(&root).unwrap();
         cmd_review(&mut db, &root, "zoloz/zoloz.md").unwrap();
@@ -809,9 +1038,7 @@ mod tests {
             "zoloz/sub.md",
             "zoloz/zoloz.md",
             None,
-            "sub summary",
-            None,
-            vec!["tag1".to_string()],
+            "sub summary", vec!["tag1".to_string()],
             "sub content"
         );
         cmd_review(&mut db, &root, "zoloz/sub.md").unwrap();
@@ -843,9 +1070,7 @@ mod tests {
             "zoloz/sub.md",
             "zoloz/zoloz.md",
             Some("关系"),
-            "sub summary",
-            None,
-            vec!["tag1".to_string()],
+            "sub summary", vec!["tag1".to_string()],
             "sub content"
         );
         cmd_review(&mut db, &root, "zoloz/sub.md").unwrap();
@@ -873,9 +1098,7 @@ mod tests {
             "zoloz/sub.md",
             "zoloz/zoloz.md",
             None,
-            "sub summary",
-            None,
-            vec!["tag1".to_string()],
+            "sub summary", vec!["tag1".to_string()],
             "content"
         ).unwrap();
         cmd_review(&mut db, &root, "zoloz/sub.md").unwrap();
@@ -886,9 +1109,7 @@ mod tests {
             "zoloz/sub.md",
             "zoloz/zoloz.md",
             None,
-            "sub summary",
-            None,
-            vec!["tag1".to_string()],
+            "sub summary", vec!["tag1".to_string()],
             "content"
         );
         assert!(result.is_err());
@@ -903,9 +1124,7 @@ mod tests {
             "zoloz/sub.md",
             "zoloz/nonexistent.md",
             None,
-            "sub summary",
-            None,
-            vec!["tag1".to_string()],
+            "sub summary", vec!["tag1".to_string()],
             "content"
         );
         assert!(result.is_err());
@@ -921,9 +1140,7 @@ mod tests {
             "zoloz/noext",
             "zoloz/zoloz.md",
             None,
-            "s",
-            None,
-            vec!["tag1".to_string()],
+            "s", vec!["tag1".to_string()],
             "c"
         );
         cmd_review(&mut db, &root, "zoloz/noext.md").unwrap();
@@ -944,9 +1161,7 @@ mod tests {
             "zoloz/a.md",
             "zoloz/zoloz.md",
             None,
-            "a summary",
-            None,
-            vec!["tag1".to_string()],
+            "a summary", vec!["tag1".to_string()],
             "original body"
         ).unwrap();
         cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
@@ -990,9 +1205,7 @@ mod tests {
             "zoloz/a.md",
             "zoloz/zoloz.md",
             None,
-            "a summary",
-            None,
-            vec!["tag1".to_string()],
+            "a summary", vec!["tag1".to_string()],
             "original body"
         ).unwrap();
         cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
@@ -1028,9 +1241,7 @@ mod tests {
             "zoloz/a.md",
             "zoloz/zoloz.md",
             Some("oldname"),
-            "old summary",
-            None,
-            vec!["tag1".to_string()],
+            "old summary", vec!["tag1".to_string()],
             "body"
         ).unwrap();
         cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
@@ -1068,9 +1279,7 @@ mod tests {
             "zoloz/a.md",
             "zoloz/zoloz.md",
             None,
-            "a summary",
-            None,
-            vec!["tag1".to_string()],
+            "a summary", vec!["tag1".to_string()],
             "body"
         ).unwrap();
         cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
@@ -1119,9 +1328,7 @@ mod tests {
             "zoloz/a.md",
             "zoloz/zoloz.md",
             None,
-            "a summary",
-            None,
-            vec!["tag1".to_string()],
+            "a summary", vec!["tag1".to_string()],
             "body"
         ).unwrap();
         cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
@@ -1171,9 +1378,7 @@ mod tests {
             "zoloz/a.md",
             "zoloz/zoloz.md",
             None,
-            "a summary",
-            None,
-            vec!["tag1".to_string()],
+            "a summary", vec!["tag1".to_string()],
             "a body"
         ).unwrap();
         cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
@@ -1204,9 +1409,7 @@ mod tests {
             "zoloz/a.md",
             "zoloz/zoloz.md",
             None,
-            "a summary",
-            None,
-            vec!["tag1".to_string()],
+            "a summary", vec!["tag1".to_string()],
             "a body"
         ).unwrap();
         cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
@@ -1217,9 +1420,7 @@ mod tests {
             "zoloz/b.md",
             "zoloz/a.md",
             None,
-            "b summary",
-            None,
-            vec!["tag1".to_string()],
+            "b summary", vec!["tag1".to_string()],
             "b body"
         ).unwrap();
         cmd_review(&mut db, &root, "zoloz/b.md").unwrap();
@@ -1257,7 +1458,172 @@ mod tests {
         assert!(has_fm);
         assert_eq!(parsed.name, "a: b");
         assert_eq!(parsed.summary, "summary");
-        assert_eq!(parsed.category, "cat");
+        assert_eq!(parsed.domain, "cat");
         assert_eq!(parsed.tags, vec!["t1".to_string()]);
+    }
+
+    // ===== cmd_create_domain =====
+
+    #[test]
+    fn test_create_domain_top_level() {
+        let (_dir, root) = setup_kb();
+        let result = cmd_create_domain(&root, "zoloz", "zoloz summary", vec![], "root body");
+        assert!(result.is_ok());
+        let v = result.unwrap();
+        assert_eq!(v["domain"], "zoloz");
+        // 领域目录存在
+        assert!(Path::new(&root).join("zoloz").is_dir());
+        // 根文档存在
+        let root_doc = Path::new(&root).join("zoloz").join("zoloz.md");
+        assert!(root_doc.exists());
+        // INDEX.md 存在
+        assert!(Path::new(&root).join("INDEX.md").exists());
+        // domain 字段 = zoloz
+        let text = read_doc(&root, "zoloz/zoloz.md");
+        let (fm, _, has_fm) = parse_frontmatter(&text);
+        assert!(has_fm);
+        assert_eq!(fm.domain, "zoloz");
+    }
+
+    #[test]
+    fn test_create_domain_subdomain() {
+        let (_dir, root) = setup_kb();
+        // 先创建父领域
+        cmd_create_domain(&root, "zoloz", "parent", vec![], "parent body").unwrap();
+        // 再创建子领域
+        let result = cmd_create_domain(&root, "zoloz/pay", "pay summary", vec![], "pay body");
+        assert!(result.is_ok());
+        assert!(Path::new(&root).join("zoloz/pay").is_dir());
+        assert!(Path::new(&root).join("zoloz/pay/pay.md").exists());
+        // domain 字段 = zoloz/pay
+        let text = read_doc(&root, "zoloz/pay/pay.md");
+        let (fm, _, _) = parse_frontmatter(&text);
+        assert_eq!(fm.domain, "zoloz/pay");
+    }
+
+    #[test]
+    fn test_create_domain_parent_not_found() {
+        let (_dir, root) = setup_kb();
+        // 直接创建子领域但父领域不存在
+        let result = cmd_create_domain(&root, "zoloz/pay", "pay", vec![], "body");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("parent domain not found"));
+    }
+
+    #[test]
+    fn test_create_domain_empty_domain() {
+        let (_dir, root) = setup_kb();
+        let result = cmd_create_domain(&root, "", "s", vec![], "c");
+        assert!(result.is_err());
+    }
+
+    // ===== add 领域校验 =====
+
+    #[test]
+    fn test_add_domain_not_found_error() {
+        let (_dir, root, mut db) = setup_kb_with_docs();
+        // 添加文档到不存在的子领域
+        let result = cmd_add(
+            &mut db,
+            &root,
+            "zoloz/nonexistent/sub.md",
+            "zoloz/zoloz.md",
+            None,
+            "sub summary",
+            vec!["tag1".to_string()],
+            "sub content"
+        );
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("domain not found"));
+    }
+
+    #[test]
+    fn test_add_to_existing_subdomain() {
+        let (_dir, root, mut db) = setup_kb_with_docs();
+        // 先创建子领域
+        cmd_create_domain(&root, "zoloz/pay", "pay", vec![], "pay body").unwrap();
+        // 添加文档到已存在的子领域
+        let result = cmd_add(
+            &mut db,
+            &root,
+            "zoloz/pay/invoice.md",
+            "zoloz/pay/pay.md",
+            None,
+            "invoice",
+            vec!["tag1".to_string()],
+            "invoice body"
+        );
+        assert!(result.is_ok());
+        // domain 字段 = zoloz/pay
+        let text = read_doc(&root, "zoloz/pay/invoice.md");
+        let (fm, _, _) = parse_frontmatter(&text);
+        assert_eq!(fm.domain, "zoloz/pay");
+    }
+
+    // ===== cmd_rename_domain =====
+
+    #[test]
+    fn test_rename_domain() {
+        let (_dir, root, mut db) = setup_kb_with_docs();
+        // 添加子文档到 zoloz
+        cmd_add(
+            &mut db,
+            &root,
+            "zoloz/sub.md",
+            "zoloz/zoloz.md",
+            None,
+            "sub",
+            vec!["tag1".to_string()],
+            "sub body"
+        ).unwrap();
+        cmd_review(&mut db, &root, "zoloz/sub.md").unwrap();
+        // 创建另一个领域,其文档含指向 zoloz/sub.md 的 wiki-link
+        cmd_create_domain(&root, "other", "other", vec![], "other body").unwrap();
+        let other_doc = abs_path(&root, "other/other.md");
+        let other_text = std::fs::read_to_string(&other_doc).unwrap();
+        let other_text = format!("{}\n- [[`.knowledges/zoloz/sub.md`]]\n- [[`.knowledges/zoloz/zoloz.md`]]\n", other_text);
+        std::fs::write(&other_doc, other_text).unwrap();
+
+        let result = cmd_rename_domain(&mut db, &root, "zoloz", "newdomain");
+        assert!(result.is_ok());
+        // 旧目录不存在
+        assert!(!Path::new(&root).join("zoloz").exists());
+        // 新目录存在
+        assert!(Path::new(&root).join("newdomain").is_dir());
+        assert!(Path::new(&root).join("newdomain/newdomain.md").exists());
+        // 子文档迁移到新路径
+        assert!(Path::new(&root).join("newdomain/sub.md").exists());
+        // 索引重建:子文档路径更新
+        let docs = db.all_docs_meta().unwrap();
+        assert!(docs.iter().any(|d| d.path == "newdomain/newdomain.md"));
+        assert!(docs.iter().any(|d| d.path == "newdomain/sub.md"));
+        // 子文档的 domain 从路径推导(= newdomain)
+        let sub_doc = docs.iter().find(|d| d.path == "newdomain/sub.md").unwrap();
+        assert_eq!(sub_doc.domain, "newdomain");
+        // wiki-link 重写:子文档链接已改为 newdomain/sub.md
+        let other_new_text = std::fs::read_to_string(&other_doc).unwrap();
+        assert!(other_new_text.contains("newdomain/sub.md"));
+        assert!(!other_new_text.contains("zoloz/sub.md"));
+        // wiki-link 重写:根文档链接已改为 newdomain/newdomain.md(不只是 prefix)
+        assert!(other_new_text.contains("newdomain/newdomain.md"));
+        assert!(!other_new_text.contains("newdomain/zoloz.md"));
+    }
+
+    #[test]
+    fn test_rename_domain_not_found() {
+        let (_dir, root, mut db) = setup_kb_with_docs();
+        let result = cmd_rename_domain(&mut db, &root, "nonexistent", "new");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_rename_domain_target_exists() {
+        let (_dir, root, mut db) = setup_kb_with_docs();
+        // 创建目标领域
+        cmd_create_domain(&root, "target", "target", vec![], "body").unwrap();
+        let result = cmd_rename_domain(&mut db, &root, "zoloz", "target");
+        assert!(result.is_err());
     }
 }
