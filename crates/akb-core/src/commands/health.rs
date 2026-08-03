@@ -474,7 +474,7 @@ mod tests {
     fn setup_empty_kb() -> (tempfile::TempDir, String, IndexDb) {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_string_lossy().to_string();
-        let result = cmd_init(&root, "zoloz", "root summary", None, vec![], "root content");
+        let result = cmd_init(&root, "zoloz", "root summary", vec![], "root content");
         assert!(result.is_ok());
         let db = IndexDb::open(&root).unwrap();
         (dir, root, db)

@@ -17,7 +17,7 @@ static WIKILINK_RE: OnceLock<Regex> = OnceLock::new();
 
 fn wikilink_re() -> &'static Regex {
     WIKILINK_RE.get_or_init(|| {
-        Regex::new(r"\[\[\s*`?([^`|\]]+?)`?(?:\|([^\]]+?))?\s*\]\]")
+        Regex::new(r"\[\[\s*(`?)([^`|\]]+?)(`?)(?:\|([^\]]+?))?\s*\]\]")
             .expect("WIKILINK_RE: 静态正则,编译期可验证,不会失败")
     })
 }
@@ -39,7 +39,7 @@ fn inline_elem_re() -> &'static Regex {
 pub struct Frontmatter {
     pub name: String,
     pub summary: String,
-    pub category: String,
+    pub domain: String,
     pub tags: Vec<String>,
     pub status: String,
 }
@@ -49,7 +49,7 @@ impl Default for Frontmatter {
         Frontmatter {
             name: String::new(),
             summary: String::new(),
-            category: String::new(),
+            domain: String::new(),
             tags: Vec::new(),
             status: "pending".to_string(),
         }
@@ -63,7 +63,7 @@ pub struct ParsedDoc {
     pub path: String,
     pub name: String,
     pub summary: String,
-    pub category: String,
+    pub domain: String,
     pub tags: Vec<String>,
     /// (target, relation) 列表。
     pub outlinks: Vec<(String, Option<String>)>,
@@ -78,7 +78,7 @@ pub struct ParsedDoc {
 struct FmMapping {
     name: serde_yaml::Value,
     summary: serde_yaml::Value,
-    category: serde_yaml::Value,
+    domain: serde_yaml::Value,
     tags: serde_yaml::Value,
     status: serde_yaml::Value,
 }
@@ -88,7 +88,7 @@ impl Default for FmMapping {
         FmMapping {
             name: serde_yaml::Value::Null,
             summary: serde_yaml::Value::Null,
-            category: serde_yaml::Value::Null,
+            domain: serde_yaml::Value::Null,
             tags: serde_yaml::Value::Null,
             status: serde_yaml::Value::Null,
         }
@@ -124,6 +124,10 @@ pub fn normalize_path(raw: &str, kb_root: &str) -> String {
     while s.starts_with('/') && s.len() > 1 {
         s = s[1..].to_string();
     }
+    // 拒绝路径穿越:任何段为 .. 或 . 视为非法,返回空串
+    if s.split('/').any(|seg| seg == ".." || seg == ".") {
+        return String::new();
+    }
     s
 }
 
@@ -134,8 +138,8 @@ pub fn parse_wikilinks(text: &str, kb_root: &str) -> Vec<(String, Option<String>
     let mut results: Vec<(String, Option<String>)> = Vec::new();
     let mut seen: HashSet<(String, Option<String>)> = HashSet::new();
     for caps in wikilink_re().captures_iter(text) {
-        let raw_path = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-        let relation: Option<String> = match caps.get(2) {
+        let raw_path = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+        let relation: Option<String> = match caps.get(4) {
             None => None,
             Some(m) => {
                 let l = m.as_str().trim().to_string();
@@ -158,6 +162,53 @@ pub fn parse_wikilinks(text: &str, kb_root: &str) -> Vec<(String, Option<String>
         results.push((target, relation));
     }
     results
+}
+
+/// 重写文档中所有 wiki-link 的路径
+///
+/// 结构性替换:只改 [[...]] 内的路径文本,不动正文其他内容。
+/// 支持带 `.knowledges/` 前缀与不带前缀两种形态,关系标签保留。
+pub fn rewrite_wikilink_paths(text: &str, kb_root: &str, old: &str, new: &str) -> String {
+    let old = old.trim().trim_matches('/');
+    let new = new.trim().trim_matches('/');
+    if old.is_empty() {
+        return text.to_string();
+    }
+    let old_with_slash = format!("{}/", old);
+    let new_with_slash = format!("{}/", new);
+    wikilink_re()
+        .replace_all(text, |caps: &regex::Captures| {
+            let pre_backtick = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+            let raw_path = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+            let post_backtick = caps.get(3).map(|m| m.as_str()).unwrap_or("");
+            let relation = caps.get(4).map(|m| m.as_str()).unwrap_or("");
+            // 去掉反引号和 .knowledges/ 前缀,归一化后判断
+            let norm = normalize_path(raw_path, kb_root);
+            let rewritten: String = if norm == old {
+                let (pre, _suffix) = split_prefix(raw_path, old);
+                format!("{}{}", pre, new)
+            } else if norm.starts_with(&old_with_slash) {
+                let (pre, suffix) = split_prefix(raw_path, &old_with_slash);
+                format!("{}{}{}", pre, new_with_slash, suffix)
+            } else {
+                raw_path.to_string()
+            };
+            if relation.is_empty() {
+                format!("[[{}{}{}]]", pre_backtick, rewritten, post_backtick)
+            } else {
+                format!("[[{}{}{}|{}]]", pre_backtick, rewritten, post_backtick, relation)
+            }
+        })
+        .into_owned()
+}
+
+/// 把 raw 按 prefix 拆分:返回 (prefix 之前的文本, prefix 之后的文本)。
+/// 用于在 wiki-link 原文本中定位 old 段的位置。
+fn split_prefix<'a>(raw: &'a str, prefix: &str) -> (&'a str, &'a str) {
+    match raw.find(prefix) {
+        Some(idx) => (&raw[..idx], &raw[idx + prefix.len()..]),
+        None => ("", raw),
+    }
 }
 
 /// 解析 YAML 行内数组,支持双引号/单引号包裹的元素(元素内可含逗号)。
@@ -271,7 +322,7 @@ pub fn parse_frontmatter(text: &str) -> (Frontmatter, String, bool) {
         Frontmatter {
             name: value_to_string(&m.name),
             summary: value_to_string(&m.summary),
-            category: value_to_string(&m.category),
+            domain: value_to_string(&m.domain),
             tags: value_to_tags(&m.tags),
             status: validate_status(&value_to_string(&m.status)),
         }
@@ -320,7 +371,7 @@ fn parse_frontmatter_manual(fm_text: &str) -> Frontmatter {
                     }
                     in_summary_multiline = false;
                 }
-                "name" | "summary" | "category" | "status" => {
+                "name" | "summary" | "domain" | "status" => {
                     if matches!(
                         value.as_str(),
                         "|" | "|-" | "|+" | ">" | ">-" | ">+"
@@ -368,7 +419,7 @@ fn parse_frontmatter_manual(fm_text: &str) -> Frontmatter {
                         match key.as_str() {
                             "name" => fm.name = trimmed,
                             "summary" => fm.summary = trimmed,
-                            "category" => fm.category = trimmed,
+                            "domain" => fm.domain = trimmed,
                             "status" => fm.status = validate_status(&trimmed),
                             _ => {}
                         }
@@ -378,7 +429,7 @@ fn parse_frontmatter_manual(fm_text: &str) -> Frontmatter {
                         match key.as_str() {
                             "name" => fm.name = v,
                             "summary" => fm.summary = v,
-                            "category" => fm.category = v,
+                            "domain" => fm.domain = v,
                             "status" => fm.status = validate_status(&v),
                             _ => {}
                         }
@@ -416,7 +467,7 @@ pub fn parse_doc(text: &str, doc_path: &str, kb_root: &str, with_body: bool) -> 
         path: doc_path.to_string(),
         name: fm.name,
         summary: fm.summary,
-        category: fm.category,
+        domain: fm.domain,
         tags: fm.tags,
         outlinks: links,
         body: if with_body { text.to_string() } else { String::new() },
@@ -489,12 +540,12 @@ mod tests {
 
     #[test]
     fn test_parse_frontmatter_yaml() {
-        let text = "---\nname: zoloz\nsummary: 摘要\ncategory: cat\ntags: [a, b]\n---\n正文内容";
+        let text = "---\nname: zoloz\nsummary: 摘要\ndomain: cat\ntags: [a, b]\n---\n正文内容";
         let (fm, body, has_fm) = parse_frontmatter(text);
         assert!(has_fm);
         assert_eq!(fm.name, "zoloz");
         assert_eq!(fm.summary, "摘要");
-        assert_eq!(fm.category, "cat");
+        assert_eq!(fm.domain, "cat");
         assert_eq!(fm.tags, vec!["a", "b"]);
         assert!(body.starts_with("正文内容"));
     }
@@ -533,5 +584,31 @@ mod tests {
         assert_eq!(fm.name, "");
         assert_eq!(fm.tags.len(), 0);
         assert_eq!(body, text);
+    }
+
+    #[test]
+    fn test_parse_frontmatter_manual_domain() {
+        // 直接触发手写回退解析器,验证 domain key 解析
+        let fm = parse_frontmatter_manual("name: a\nsummary: s\ndomain: zoloz/pay\ntags: []\nstatus: validated");
+        assert_eq!(fm.domain, "zoloz/pay");
+        assert_eq!(fm.name, "a");
+        assert_eq!(fm.status, "validated");
+        // 未知字段不应被解析为 domain
+        let fm2 = parse_frontmatter_manual("name: a\nsummary: s\nunknown_field: old\nstatus: pending");
+        assert_eq!(fm2.domain, "");
+    }
+
+    #[test]
+    fn test_rewrite_wikilink_preserves_backticks() {
+        // 带反引号的合法链接,重写后必须保留反引号格式
+        let text = "[[zoloz/sub.md]]\n[[`zoloz/sub.md`]]\n[[`.knowledges/zoloz/sub.md`]]\n[[zoloz/sub.md|关系]]\n[[`zoloz/sub.md`|关系]]\n正文里的 zoloz/sub.md 不应被碰";
+        let out = rewrite_wikilink_paths(text, ".knowledges", "zoloz", "newd");
+        assert!(out.contains("[[newd/sub.md]]"));
+        assert!(out.contains("[[`newd/sub.md`]]"));
+        assert!(out.contains("[[`.knowledges/newd/sub.md`]]"));
+        assert!(out.contains("[[newd/sub.md|关系]]"));
+        assert!(out.contains("[[`newd/sub.md`|关系]]"));
+        // 正文普通文本不重写
+        assert!(out.contains("正文里的 zoloz/sub.md 不应被碰"));
     }
 }

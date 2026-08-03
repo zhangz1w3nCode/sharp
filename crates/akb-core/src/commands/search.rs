@@ -271,6 +271,8 @@ pub fn cmd_show(kb_root_abs: &str, doc: &str, summary_only: bool) -> Result<Valu
     let text = std::fs::read_to_string(&abs)
         .map_err(|_| KbError::Other(format!("{} not found in knowledge base", doc)))?;
     let (fm, body, has_fm) = parse_frontmatter(&text);
+    // domain 从文档路径推导,与索引保持一致
+    let domain = doc.rsplit_once('/').map(|(d, _)| d.to_string()).unwrap_or_default();
     if summary_only {
         return Ok(json!({
             "doc": doc,
@@ -284,11 +286,54 @@ pub fn cmd_show(kb_root_abs: &str, doc: &str, summary_only: bool) -> Result<Valu
         "frontmatter": {
             "name": fm.name,
             "summary": fm.summary,
-            "category": fm.category,
+            "domain": domain,
             "tags": fm.tags,
         },
         "body": body,
     }))
+}
+
+/// kb domains [domain] — 列出全部领域或指定领域下的子领域。
+///
+/// 基于 scan_files 推导:domain = 路径第一段,subdomain = 路径第二段。
+/// 无参时返回全部 domain 列表;有参时返回指定 domain 下的 subdomain 列表。
+pub fn cmd_domains(_db: &mut IndexDb, kb_root_abs: &str, domain: Option<&str>) -> Result<Value, KbError> {
+    let files = scan_files(kb_root_abs);
+    match domain {
+        None => {
+            let mut domains: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+            for f in &files {
+                let parts: Vec<&str> = f.split('/').collect();
+                if parts.len() > 1 {
+                    domains.insert(parts[0].to_string());
+                }
+            }
+            let list: Vec<String> = domains.into_iter().collect();
+            Ok(json!({
+                "domains": list,
+                "total": list.len(),
+            }))
+        }
+        Some(domain) => {
+            let domain = domain.trim().trim_matches('/').to_string();
+            let prefix = format!("{}/", domain);
+            let mut subdomains: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+            for f in &files {
+                if let Some(rest) = f.strip_prefix(&prefix) {
+                    let parts: Vec<&str> = rest.split('/').collect();
+                    if parts.len() > 1 {
+                        subdomains.insert(parts[0].to_string());
+                    }
+                }
+            }
+            let list: Vec<String> = subdomains.into_iter().collect();
+            Ok(json!({
+                "domain": domain,
+                "sub_domains": list,
+                "total": list.len(),
+            }))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -541,5 +586,75 @@ mod tests {
         let (_dir, root, _db) = setup_ab_chain();
         let result = cmd_show(&root, "zoloz/nonexistent.md", false);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_show_top_level_doc_domain_empty() {
+        let (_dir, root, _db) = setup_ab_chain();
+        // 顶层文档(无斜杠),domain 从路径推导为空
+        write_doc(
+            &root,
+            "top.md",
+            "---\nname: top\nsummary: s\ntags: []\nstatus: validated\n---\nbody",
+        );
+        let result = cmd_show(&root, "top.md", false);
+        let v = result.unwrap();
+        assert_eq!(v["frontmatter"]["domain"], "");
+    }
+
+    // ===== cmd_domains =====
+
+    #[test]
+    fn test_domains_list_all() {
+        let (_dir, root, mut db) = setup_ab_chain();
+        // 添加另一个领域
+        write_doc(
+            &root,
+            "other/other.md",
+            "---\nname: other\nsummary: s\ntags: []\nstatus: validated\n---\nbody",
+        );
+        db.upsert_doc(&root, "other/other.md").unwrap();
+        let v = cmd_domains(&mut db, &root, None).unwrap();
+        let list = v["domains"].as_array().unwrap();
+        assert!(list.iter().any(|d| d == "other"));
+        assert!(list.iter().any(|d| d == "zoloz"));
+        assert_eq!(v["total"], 2);
+    }
+
+    #[test]
+    fn test_domains_sub_domains() {
+        let (_dir, root, mut db) = setup_ab_chain();
+        // zoloz 已有 a.md, b.md(无子领域)
+        let v = cmd_domains(&mut db, &root, Some("zoloz")).unwrap();
+        let subs = v["sub_domains"].as_array().unwrap();
+        assert_eq!(subs.len(), 0);
+    }
+
+    #[test]
+    fn test_domains_sub_domains_nonempty() {
+        let (_dir, root, mut db) = setup_ab_chain();
+        // 创建子领域下的文档
+        write_doc(
+            &root,
+            "zoloz/pay/invoice.md",
+            "---\nname: invoice\nsummary: s\ntags: []\nstatus: validated\n---\nbody",
+        );
+        db.upsert_doc(&root, "zoloz/pay/invoice.md").unwrap();
+        let v = cmd_domains(&mut db, &root, Some("zoloz")).unwrap();
+        let subs = v["sub_domains"].as_array().unwrap();
+        assert!(subs.iter().any(|s| s == "pay"));
+        assert_eq!(v["total"], 1);
+    }
+
+    #[test]
+    fn test_show_domain_field() {
+        let (_dir, root, _db) = setup_ab_chain();
+        let result = cmd_show(&root, "zoloz/a.md", false);
+        let v = result.unwrap();
+        // domain 从路径推导 = zoloz(父目录)
+        assert_eq!(v["frontmatter"]["domain"], "zoloz");
+        // frontmatter 仅含已知字段,无多余分类字段
+        let keys = v["frontmatter"].as_object().unwrap().keys().cloned().collect::<Vec<_>>();
+        assert!(keys.contains(&"domain".to_string()));
     }
 }

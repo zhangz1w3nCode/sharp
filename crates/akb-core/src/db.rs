@@ -47,7 +47,7 @@ pub struct DocMeta {
     pub path: String,
     pub name: String,
     pub summary: String,
-    pub category: String,
+    pub domain: String,
     pub has_frontmatter: bool,
     pub status: String,
     pub tags: Vec<String>,
@@ -71,15 +71,20 @@ pub struct IndexStatus {
 
 impl IndexDb {
     /// 打开或创建索引文件。
-    pub fn open(kb_root_abs: &str) -> Result<Self, rusqlite::Error> {
+    /// 打开或创建索引文件。版本迁移时自动重建索引避免空库。
+    pub fn open(kb_root_abs: &str) -> Result<Self, KbError> {
         let index_path = Path::new(kb_root_abs).join(".akb_index.sqlite");
-        let conn = Connection::open(&index_path)?;
-        let db = IndexDb { conn, index_path };
-        db.ensure_schema()?;
+        let conn = Connection::open(&index_path).map_err(KbError::Sqlite)?;
+        let mut db = IndexDb { conn, index_path };
+        let migrated = db.ensure_schema().map_err(KbError::Sqlite)?;
+        // 版本迁移后索引为空,自动重建避免读命令看到空库
+        if migrated {
+            db.full_rebuild(kb_root_abs).map_err(|e| KbError::Other(format!("index rebuild after migration: {}", e)))?;
+        }
         Ok(db)
     }
 
-    fn ensure_schema(&self) -> Result<(), rusqlite::Error> {
+    fn ensure_schema(&self) -> Result<bool, rusqlite::Error> {
         // 先建 meta 表,读取 schema_version
         self.conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS meta (
@@ -97,8 +102,10 @@ impl IndexDb {
             .optional()?
             .unwrap_or_else(|| "0".to_string());
 
-        // schema v5: links 表 label 列改名为 relation
-        if current_version != "5" {
+        let mut migrated = false;
+        // schema v6: docs 表新增 domain 列,版本不匹配时重建
+        if current_version != "6" {
+            migrated = true;
             self.conn.execute_batch(
                 "DROP TRIGGER IF EXISTS docs_ai;
                  DROP TRIGGER IF EXISTS docs_ad;
@@ -118,7 +125,7 @@ impl IndexDb {
                 heading TEXT NOT NULL,
                 body TEXT NOT NULL,
                 tags_text TEXT NOT NULL,
-                category TEXT NOT NULL,
+                domain TEXT NOT NULL,
                 has_frontmatter INTEGER NOT NULL,
                 status TEXT NOT NULL DEFAULT 'pending',
                 mtime_secs INTEGER NOT NULL,
@@ -172,12 +179,12 @@ impl IndexDb {
 
             PRAGMA foreign_keys = ON;
 
-            INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '5');
+            INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '6');
 
             ANALYZE;
-            ",
+            "
         )?;
-        Ok(())
+        Ok(migrated)
     }
 
     /// 全量重建索引。
@@ -296,6 +303,8 @@ impl IndexDb {
         let meta = file_stat(kb_root_abs, rel_path)
             .ok_or_else(|| KbError::Other(format!("stat failed: {}", rel_path)))?;
         let (fm, body, has_fm) = parse_frontmatter(&text);
+        // domain 从文档路径推导(single source of truth),不依赖 frontmatter
+        let domain = rel_path.rsplit_once('/').map(|(d, _)| d.to_string()).unwrap_or_default();
         let links = parse_wikilinks(&text, ".knowledges");
         let tags: Vec<String> = fm
             .tags
@@ -313,7 +322,7 @@ impl IndexDb {
 
         if fm.status == "validated" {
             tx.execute(
-                "INSERT INTO docs(path, name, summary, heading, body, tags_text, category, has_frontmatter, status, mtime_secs, mtime_nanos, size_bytes)
+                "INSERT INTO docs(path, name, summary, heading, body, tags_text, domain, has_frontmatter, status, mtime_secs, mtime_nanos, size_bytes)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
                  ON CONFLICT(path) DO UPDATE SET
                    name = excluded.name,
@@ -321,7 +330,7 @@ impl IndexDb {
                    heading = excluded.heading,
                    body = excluded.body,
                    tags_text = excluded.tags_text,
-                   category = excluded.category,
+                   domain = excluded.domain,
                    has_frontmatter = excluded.has_frontmatter,
                    status = excluded.status,
                    mtime_secs = excluded.mtime_secs,
@@ -334,7 +343,7 @@ impl IndexDb {
                     heading,
                     body,
                     tags_text,
-                    fm.category,
+                    domain,
                     if has_fm { 1 } else { 0 },
                     fm.status,
                     meta.0,
@@ -531,7 +540,7 @@ impl IndexDb {
     /// 全部文档元数据。
     pub fn all_docs_meta(&self) -> Result<Vec<DocMeta>, rusqlite::Error> {
         let mut stmt = self.conn.prepare(
-            "SELECT path, name, summary, category, has_frontmatter, status,
+            "SELECT path, name, summary, domain, has_frontmatter, status,
                     mtime_secs, mtime_nanos, size_bytes
              FROM docs ORDER BY path",
         )?;
@@ -540,7 +549,7 @@ impl IndexDb {
                 path: row.get(0)?,
                 name: row.get(1)?,
                 summary: row.get(2)?,
-                category: row.get(3)?,
+                domain: row.get(3)?,
                 has_frontmatter: row.get::<_, i64>(4)? != 0,
                 status: row.get::<_, String>(5)?,
                 tags: Vec::new(),
@@ -816,5 +825,81 @@ mod tests {
         // repair_stale 应清理指向 pending B 的 link
         assert!(db.outlinks("a.md").unwrap().is_empty(), "repair_stale 后不应有指向 pending 的 link");
         assert!(db.all_links().unwrap().is_empty(), "links 表应为空");
+    }
+
+    #[test]
+    fn test_upsert_derives_domain_from_path() {
+        let (_dir, root) = tmp_kb();
+        // 文档 frontmatter 中没有 domain 字段(旧文档迁移场景)
+        write_doc(
+            &root,
+            "zoloz/pay/invoice.md",
+            "---\nname: invoice\nsummary: s\ntags: []\nstatus: validated\n---\nbody",
+        );
+        let mut db = IndexDb::open(&root).unwrap();
+        db.full_rebuild(&root).unwrap();
+        // domain 从路径推导 = zoloz/pay(父目录),不依赖 frontmatter
+        let docs = db.all_docs_meta().unwrap();
+        let doc = docs.iter().find(|d| d.path == "zoloz/pay/invoice.md").unwrap();
+        assert_eq!(doc.domain, "zoloz/pay");
+        // 顶层文档 domain 为空
+        write_doc(
+            &root,
+            "top.md",
+            "---\nname: top\nsummary: s\ntags: []\nstatus: validated\n---\nbody",
+        );
+        db.full_rebuild(&root).unwrap();
+        let docs = db.all_docs_meta().unwrap();
+        let top = docs.iter().find(|d| d.path == "top.md").unwrap();
+        assert_eq!(top.domain, "");
+    }
+
+    #[test]
+    fn test_schema_version_is_6() {
+        let (_dir, root) = tmp_kb();
+        write_doc(&root, "a.md", "---\nname: a\nsummary: s\ntags: []\nstatus: validated\n---\nbody");
+        let db = IndexDb::open(&root).unwrap();
+        let version: String = db.conn()
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'schema_version'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(version, "6");
+    }
+
+    #[test]
+    fn test_open_migrates_v5_and_rebuilds() {
+        let (_dir, root) = tmp_kb();
+        write_doc(&root, "zoloz/zoloz.md", "---\nname: zoloz\nsummary: s\ntags: []\nstatus: validated\n---\nbody");
+        // 先用正常方式建 v6 库并索引
+        {
+            let mut db = IndexDb::open(&root).unwrap();
+            db.full_rebuild(&root).unwrap();
+        }
+        // 模拟 v5 库:改 schema_version 为 5 + docs 表改回 category 列
+        {
+            let conn = rusqlite::Connection::open(Path::new(&root).join(".akb_index.sqlite")).unwrap();
+            conn.execute("UPDATE meta SET value='5' WHERE key='schema_version'", []).unwrap();
+            conn.execute("ALTER TABLE docs RENAME TO docs_v6", []).unwrap();
+            conn.execute(
+                "CREATE TABLE docs (path TEXT PRIMARY KEY, name TEXT NOT NULL, summary TEXT NOT NULL, heading TEXT NOT NULL, body TEXT NOT NULL, tags_text TEXT NOT NULL, category TEXT NOT NULL, has_frontmatter INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', mtime_secs INTEGER NOT NULL, mtime_nanos INTEGER NOT NULL, size_bytes INTEGER NOT NULL)",
+                [],
+            ).unwrap();
+            conn.execute("INSERT INTO docs SELECT path, name, summary, heading, body, tags_text, '', has_frontmatter, status, mtime_secs, mtime_nanos, size_bytes FROM docs_v6", []).unwrap();
+            conn.execute("DROP TABLE docs_v6", []).unwrap();
+        }
+        // 用新代码 open:应自动迁移到 v6 并重建索引
+        let db = IndexDb::open(&root).unwrap();
+        let version: String = db.conn()
+            .query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, "6");
+        // 索引已重建
+        let docs = db.all_docs_meta().unwrap();
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].path, "zoloz/zoloz.md");
+        assert_eq!(docs[0].domain, "zoloz");
     }
 }
