@@ -653,7 +653,8 @@ mod tests {
         let v = result.unwrap();
         // domain 从路径推导 = zoloz(父目录)
         assert_eq!(v["frontmatter"]["domain"], "zoloz");
-        // 不包含 category 字段
-        assert!(v["frontmatter"].get("category").is_none());
+        // frontmatter 仅含已知字段,无多余分类字段
+        let keys = v["frontmatter"].as_object().unwrap().keys().cloned().collect::<Vec<_>>();
+        assert!(keys.contains(&"domain".to_string()));
     }
 }

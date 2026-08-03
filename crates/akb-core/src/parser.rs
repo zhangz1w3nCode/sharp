@@ -542,8 +542,8 @@ mod tests {
         assert_eq!(fm.domain, "zoloz/pay");
         assert_eq!(fm.name, "a");
         assert_eq!(fm.status, "validated");
-        // 旧格式 category 不应被解析为 domain
-        let fm2 = parse_frontmatter_manual("name: a\nsummary: s\ncategory: old\nstatus: pending");
+        // 未知字段不应被解析为 domain
+        let fm2 = parse_frontmatter_manual("name: a\nsummary: s\nunknown_field: old\nstatus: pending");
         assert_eq!(fm2.domain, "");
     }
 }

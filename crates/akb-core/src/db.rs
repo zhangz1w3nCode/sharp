@@ -97,7 +97,7 @@ impl IndexDb {
             .optional()?
             .unwrap_or_else(|| "0".to_string());
 
-        // schema v6: docs 表 category 列改名为 domain
+        // schema v6: docs 表新增 domain 列,版本不匹配时重建
         if current_version != "6" {
             self.conn.execute_batch(
                 "DROP TRIGGER IF EXISTS docs_ai;

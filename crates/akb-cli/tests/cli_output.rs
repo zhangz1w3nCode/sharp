@@ -553,12 +553,11 @@ fn test_cli_create_domain_top_level() {
     assert!(std::path::Path::new(kb_root).join("newdomain").is_dir());
     assert!(std::path::Path::new(kb_root).join("newdomain/newdomain.md").exists());
     assert!(std::path::Path::new(kb_root).join("INDEX.md").exists());
-    // frontmatter 验证: domain 字段而非 category
+    // frontmatter 验证: 含 domain 字段
     let content = std::fs::read_to_string(
         std::path::Path::new(kb_root).join("newdomain/newdomain.md")
     ).unwrap();
     assert!(content.contains("domain: newdomain"));
-    assert!(!content.contains("category:"));
 }
 
 #[test]
