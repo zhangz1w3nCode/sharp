@@ -636,7 +636,8 @@ pub fn cmd_update(
     let (fm, body, _has_fm) = parse_frontmatter(&text);
     let mut name_val = fm.name;
     let mut summary_val = fm.summary;
-    let domain_val = fm.domain;
+    // domain 从文档路径推导(single source of truth),旧文档/rename 后 frontmatter 可能过期
+    let domain_val = doc.rsplit_once('/').map(|(d, _)| d.to_string()).unwrap_or_default();
     let mut tags_val = fm.tags;
 
     let mut changes: Vec<String> = Vec::new();
@@ -747,10 +748,12 @@ pub fn cmd_review(
         return Err(KbError::Other(format!("document has no frontmatter: {}", doc)));
     }
     let already_validated = fm.status == "validated";
+    // domain 从文档路径推导(single source of truth)
+    let domain_val = doc.rsplit_once('/').map(|(d, _)| d.to_string()).unwrap_or_default();
     let frontmatter = build_frontmatter(
         &fm.name,
         &fm.summary,
-        &fm.domain,
+        &domain_val,
         &fm.tags.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
         "validated",
     )?;
@@ -1724,7 +1727,11 @@ mod tests {
             "sub body"
         ).unwrap();
         cmd_review(&mut db, &root, "zoloz/sub.md").unwrap();
-        // update 只改 content,domain 应保留
+        // 模拟旧文档:移除 frontmatter 中的 domain 字段
+        let old_text = read_doc(&root, "zoloz/sub.md");
+        let old_text = old_text.replace("domain: zoloz\n", "");
+        std::fs::write(abs_path(&root, "zoloz/sub.md"), old_text).unwrap();
+        // update 只改 content,domain 应从路径推导补全
         cmd_update(
             &mut db,
             &root,
@@ -1738,7 +1745,7 @@ mod tests {
             None,
             None,
         ).unwrap();
-        // update 后 status 回退 pending,文档不在索引中;直接读文件验证 domain 保留
+        // update 后 status 回退 pending,文档不在索引中;直接读文件验证 domain 从路径推导补全
         let text = read_doc(&root, "zoloz/sub.md");
         let (fm, _, _) = parse_frontmatter(&text);
         assert_eq!(fm.domain, "zoloz");

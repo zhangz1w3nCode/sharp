@@ -95,4 +95,36 @@ fn test_review_restores_links() {
     // 6. child's inlinks include root (link restored)
     let in_ = db.inlinks("test/child.md").unwrap();
     assert!(in_.iter().any(|(s, _)| s == "test/test.md"), "child should have inlink from root after review");
+    // 6. child's inlinks include root (link restored)
+    let in_ = db.inlinks("test/child.md").unwrap();
+    assert!(in_.iter().any(|(s, _)| s == "test/test.md"), "child should have inlink from root after review");
+}
+
+#[test]
+fn test_review_fills_domain_from_path_for_legacy_doc() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_str().unwrap();
+
+    cmd_init(root, "test", "root", vec![], "root body").unwrap();
+    let mut db = IndexDb::open(root).unwrap();
+    db.full_rebuild(root).unwrap();
+    cmd_add(&mut db, root, "test/sub.md", "test/test.md", None, "sub", vec![], "body").unwrap();
+
+    // 模拟旧文档:移除 frontmatter 中的 domain 字段
+    let sub_path = format!("{root}/test/sub.md");
+    let text = std::fs::read_to_string(&sub_path).unwrap();
+    let text = text.replace("domain: test\n", "");
+    std::fs::write(&sub_path, text).unwrap();
+
+    // review -> validated
+    cmd_review(&mut db, root, "test/sub.md").unwrap();
+
+    // frontmatter 自动补 domain: test(从路径推导)
+    let text = std::fs::read_to_string(&sub_path).unwrap();
+    assert!(text.contains("domain: test"), "review 后应从路径推导补 domain");
+
+    // 索引中的 domain 正确
+    let docs = db.all_docs_meta().unwrap();
+    let doc = docs.iter().find(|d| d.path == "test/sub.md").unwrap();
+    assert_eq!(doc.domain, "test");
 }
