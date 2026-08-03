@@ -46,10 +46,10 @@ pub struct SearchHit {
 pub struct DocMeta {
     pub path: String,
     pub name: String,
-    pub description: String,
     pub summary: String,
     pub category: String,
     pub has_frontmatter: bool,
+    pub status: String,
     pub tags: Vec<String>,
     pub outlinks: Vec<(String, Option<String>)>,
     pub mtime_secs: i64,
@@ -97,8 +97,8 @@ impl IndexDb {
             .optional()?
             .unwrap_or_else(|| "0".to_string());
 
-        // schema v3: docs 加 heading + tags_text 列;FTS5 加 heading/tags_text + 列权重
-        if current_version != "3" {
+        // schema v5: links 表 label 列改名为 relation
+        if current_version != "5" {
             self.conn.execute_batch(
                 "DROP TRIGGER IF EXISTS docs_ai;
                  DROP TRIGGER IF EXISTS docs_ad;
@@ -114,13 +114,13 @@ impl IndexDb {
             "CREATE TABLE IF NOT EXISTS docs (
                 path TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
-                description TEXT NOT NULL,
                 summary TEXT NOT NULL,
                 heading TEXT NOT NULL,
                 body TEXT NOT NULL,
                 tags_text TEXT NOT NULL,
                 category TEXT NOT NULL,
                 has_frontmatter INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
                 mtime_secs INTEGER NOT NULL,
                 mtime_nanos INTEGER NOT NULL,
                 size_bytes INTEGER NOT NULL
@@ -136,8 +136,8 @@ impl IndexDb {
             CREATE TABLE IF NOT EXISTS links (
                 source TEXT NOT NULL,
                 target TEXT NOT NULL,
-                label TEXT,
-                PRIMARY KEY (source, target, label)
+                relation TEXT,
+                PRIMARY KEY (source, target, relation)
             ) WITHOUT ROWID;
             CREATE INDEX IF NOT EXISTS idx_links_target ON links(target);
 
@@ -172,7 +172,7 @@ impl IndexDb {
 
             PRAGMA foreign_keys = ON;
 
-            INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '3');
+            INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '5');
 
             ANALYZE;
             ",
@@ -193,9 +193,14 @@ impl IndexDb {
             Self::upsert_doc_in_tx(&tx, kb_root_abs, rel)?;
         }
 
+        // indexed = validated 文档数(非文件总数);pending 文档不写入索引
+        let indexed: i64 = tx.query_row("SELECT COUNT(*) FROM docs", [], |row| row.get(0))?;
+        // 清理指向未索引文档(pending)的 links
+        tx.execute("DELETE FROM links WHERE target NOT IN (SELECT path FROM docs)", [])?;
+
         tx.commit()?;
         Ok(RebuildStats {
-            indexed: files.len(),
+            indexed: indexed as usize,
             removed: 0,
         })
     }
@@ -262,6 +267,8 @@ impl IndexDb {
             }
         }
 
+        tx.execute("DELETE FROM links WHERE target NOT IN (SELECT path FROM docs)", [])?;
+
         tx.commit()?;
         Ok(RepairStats {
             added,
@@ -274,6 +281,7 @@ impl IndexDb {
     pub fn upsert_doc(&mut self, kb_root_abs: &str, rel_path: &str) -> Result<(), KbError> {
         let tx = self.conn.transaction()?;
         Self::upsert_doc_in_tx(&tx, kb_root_abs, rel_path)?;
+        tx.execute("DELETE FROM links WHERE source = ?1 AND target NOT IN (SELECT path FROM docs)", params![rel_path])?;
         tx.commit()?;
         Ok(())
     }
@@ -303,55 +311,62 @@ impl IndexDb {
             .join("\n");
         let tags_text = tags.join(" ");
 
-        tx.execute(
-            "INSERT INTO docs(path, name, description, summary, heading, body, tags_text, category, has_frontmatter, mtime_secs, mtime_nanos, size_bytes)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
-             ON CONFLICT(path) DO UPDATE SET
-               name = excluded.name,
-               description = excluded.description,
-               summary = excluded.summary,
-               heading = excluded.heading,
-               body = excluded.body,
-               tags_text = excluded.tags_text,
-               category = excluded.category,
-               has_frontmatter = excluded.has_frontmatter,
-               mtime_secs = excluded.mtime_secs,
-               mtime_nanos = excluded.mtime_nanos,
-               size_bytes = excluded.size_bytes",
-            params![
-                rel_path,
-                fm.name,
-                fm.description,
-                fm.summary,
-                heading,
-                body,
-                tags_text,
-                fm.category,
-                if has_fm { 1 } else { 0 },
-                meta.0,
-                meta.1,
-                meta.2 as i64,
-            ],
-        )?;
-
-        // 刷新 tags
-        tx.execute("DELETE FROM tags WHERE doc_path = ?1", params![rel_path])?;
-        for tag in &tags {
+        if fm.status == "validated" {
             tx.execute(
-                "INSERT OR IGNORE INTO tags(doc_path, tag) VALUES (?1, ?2)",
-                params![rel_path, tag],
+                "INSERT INTO docs(path, name, summary, heading, body, tags_text, category, has_frontmatter, status, mtime_secs, mtime_nanos, size_bytes)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                 ON CONFLICT(path) DO UPDATE SET
+                   name = excluded.name,
+                   summary = excluded.summary,
+                   heading = excluded.heading,
+                   body = excluded.body,
+                   tags_text = excluded.tags_text,
+                   category = excluded.category,
+                   has_frontmatter = excluded.has_frontmatter,
+                   status = excluded.status,
+                   mtime_secs = excluded.mtime_secs,
+                   mtime_nanos = excluded.mtime_nanos,
+                   size_bytes = excluded.size_bytes",
+                params![
+                    rel_path,
+                    fm.name,
+                    fm.summary,
+                    heading,
+                    body,
+                    tags_text,
+                    fm.category,
+                    if has_fm { 1 } else { 0 },
+                    fm.status,
+                    meta.0,
+                    meta.1,
+                    meta.2 as i64,
+                ],
             )?;
-        }
 
-        // 刷新 links(source=rel_path)
-        tx.execute("DELETE FROM links WHERE source = ?1", params![rel_path])?;
-        for (target, label) in &links {
-            tx.execute(
-                "INSERT OR IGNORE INTO links(source, target, label) VALUES (?1, ?2, ?3)",
-                params![rel_path, target, label.as_deref().unwrap_or("")],
-            )?;
-        }
+            // 刷新 tags
+            tx.execute("DELETE FROM tags WHERE doc_path = ?1", params![rel_path])?;
+            for tag in &tags {
+                tx.execute(
+                    "INSERT OR IGNORE INTO tags(doc_path, tag) VALUES (?1, ?2)",
+                    params![rel_path, tag],
+                )?;
+            }
 
+            // 刷新 links(source=rel_path)
+            tx.execute("DELETE FROM links WHERE source = ?1", params![rel_path])?;
+            for (target, relation) in &links {
+                tx.execute(
+                    "INSERT OR IGNORE INTO links(source, target, relation) VALUES (?1, ?2, ?3)",
+                    params![rel_path, target, relation.as_deref().unwrap_or("")],
+                )?;
+            }
+        } else {
+            // status != validated: 从索引中移除(如果存在),FTS5 触发器自动同步
+            tx.execute("DELETE FROM docs WHERE path = ?1", params![rel_path])?;
+            tx.execute("DELETE FROM tags WHERE doc_path = ?1", params![rel_path])?;
+            tx.execute("DELETE FROM links WHERE source = ?1", params![rel_path])?;
+            tx.execute("DELETE FROM links WHERE target = ?1", params![rel_path])?;
+        }
         Ok(())
     }
 
@@ -359,7 +374,9 @@ impl IndexDb {
     pub fn remove_doc(&mut self, rel_path: &str) -> Result<(), KbError> {
         let tx = self.conn.transaction()?;
         tx.execute("DELETE FROM docs WHERE path = ?1", params![rel_path])?;
+        tx.execute("DELETE FROM tags WHERE doc_path = ?1", params![rel_path])?;
         tx.execute("DELETE FROM links WHERE source = ?1", params![rel_path])?;
+        tx.execute("DELETE FROM links WHERE target = ?1", params![rel_path])?;
         tx.commit()?;
         Ok(())
     }
@@ -400,10 +417,11 @@ impl IndexDb {
         let escaped = query.replace('"', "\"\"");
         let fts_query = format!("\"{}\"", escaped);
 
+        // d.status = 'validated' 是防御性过滤:upsert_doc_in_tx 已保证 docs 表只含 validated 行
         let fts_sql = "SELECT d.path, d.name, d.summary, bm25(docs_fts, 1.0, 3.0, 3.0, 2.0, 1.0, 3.0) AS rank
                        FROM docs_fts
                        JOIN docs d ON d.rowid = docs_fts.rowid
-                       WHERE docs_fts MATCH ?1
+                       WHERE docs_fts MATCH ?1 AND d.status = 'validated'
                        ORDER BY rank";
         let mut stmt = self.conn.prepare(fts_sql)?;
         let rows = stmt.query_map(params![fts_query], |row| {
@@ -462,10 +480,10 @@ impl IndexDb {
     pub fn outlinks(&self, doc: &str) -> Result<Vec<(String, Option<String>)>, rusqlite::Error> {
         let mut stmt = self
             .conn
-            .prepare("SELECT target, label FROM links WHERE source = ?1 ORDER BY target")?;
+            .prepare("SELECT target, relation FROM links WHERE source = ?1 ORDER BY target")?;
         let rows = stmt.query_map(params![doc], |row| {
-            let label: Option<String> = row.get(1)?;
-            Ok((row.get::<_, String>(0)?, label.filter(|s| !s.is_empty())))
+            let relation: Option<String> = row.get(1)?;
+            Ok((row.get::<_, String>(0)?, relation.filter(|s| !s.is_empty())))
         })?;
         let mut out: Vec<(String, Option<String>)> = Vec::new();
         for row in rows {
@@ -478,10 +496,10 @@ impl IndexDb {
     pub fn inlinks(&self, doc: &str) -> Result<Vec<(String, Option<String>)>, rusqlite::Error> {
         let mut stmt = self
             .conn
-            .prepare("SELECT source, label FROM links WHERE target = ?1 ORDER BY source")?;
+            .prepare("SELECT source, relation FROM links WHERE target = ?1 ORDER BY source")?;
         let rows = stmt.query_map(params![doc], |row| {
-            let label: Option<String> = row.get(1)?;
-            Ok((row.get::<_, String>(0)?, label.filter(|s| !s.is_empty())))
+            let relation: Option<String> = row.get(1)?;
+            Ok((row.get::<_, String>(0)?, relation.filter(|s| !s.is_empty())))
         })?;
         let mut inn: Vec<(String, Option<String>)> = Vec::new();
         for row in rows {
@@ -494,13 +512,13 @@ impl IndexDb {
     pub fn all_links(&self) -> Result<Vec<(String, String, Option<String>)>, rusqlite::Error> {
         let mut stmt = self
             .conn
-            .prepare("SELECT source, target, label FROM links ORDER BY source, target")?;
+            .prepare("SELECT source, target, relation FROM links ORDER BY source, target")?;
         let rows = stmt.query_map([], |row| {
-            let label: Option<String> = row.get(2)?;
+            let relation: Option<String> = row.get(2)?;
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
-                label.filter(|s| !s.is_empty()),
+                relation.filter(|s| !s.is_empty()),
             ))
         })?;
         let mut links: Vec<(String, String, Option<String>)> = Vec::new();
@@ -513,7 +531,7 @@ impl IndexDb {
     /// 全部文档元数据。
     pub fn all_docs_meta(&self) -> Result<Vec<DocMeta>, rusqlite::Error> {
         let mut stmt = self.conn.prepare(
-            "SELECT path, name, description, summary, category, has_frontmatter,
+            "SELECT path, name, summary, category, has_frontmatter, status,
                     mtime_secs, mtime_nanos, size_bytes
              FROM docs ORDER BY path",
         )?;
@@ -521,10 +539,10 @@ impl IndexDb {
             Ok(DocMeta {
                 path: row.get(0)?,
                 name: row.get(1)?,
-                description: row.get(2)?,
-                summary: row.get(3)?,
-                category: row.get(4)?,
-                has_frontmatter: row.get::<_, i64>(5)? != 0,
+                summary: row.get(2)?,
+                category: row.get(3)?,
+                has_frontmatter: row.get::<_, i64>(4)? != 0,
+                status: row.get::<_, String>(5)?,
                 tags: Vec::new(),
                 outlinks: Vec::new(),
                 mtime_secs: row.get(6)?,
@@ -555,21 +573,21 @@ impl IndexDb {
         {
             let mut stmt = self
                 .conn
-                .prepare("SELECT source, target, label FROM links")?;
+                .prepare("SELECT source, target, relation FROM links")?;
             let rows = stmt.query_map([], |row| {
-                let label: Option<String> = row.get(2)?;
+                let relation: Option<String> = row.get(2)?;
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
-                    label.filter(|s| !s.is_empty()),
+                    relation.filter(|s| !s.is_empty()),
                 ))
             })?;
             for row in rows {
-                let (source, target, label) = row?;
+                let (source, target, relation) = row?;
                 outlinks_map
                     .entry(source)
                     .or_default()
-                    .push((target, label));
+                    .push((target, relation));
             }
         }
 
@@ -684,12 +702,12 @@ mod tests {
         write_doc(
             &root,
             "zoloz/zoloz.md",
-            "---\nname: zoloz\nsummary: zoloz summary\ntags: [a, b]\n---\nbody\n[[`test/test.md`|rel]]",
+            "---\nname: zoloz\nsummary: zoloz summary\ntags: [a, b]\nstatus: validated\n---\nbody\n[[`test/test.md`|rel]]",
         );
         write_doc(
             &root,
             "test/test.md",
-            "---\nname: test\nsummary: test summary\ntags: [a]\n---\nbody",
+            "---\nname: test\nsummary: test summary\ntags: [a]\nstatus: validated\n---\nbody",
         );
 
         let mut db = IndexDb::open(&root).unwrap();
@@ -715,7 +733,7 @@ mod tests {
         write_doc(
             &root,
             "a.md",
-            "---\nname: a\nsummary: a\ntags: []\n---\nbody",
+            "---\nname: a\nsummary: a\ntags: []\nstatus: validated\n---\nbody",
         );
         let mut db = IndexDb::open(&root).unwrap();
         db.full_rebuild(&root).unwrap();
@@ -724,7 +742,7 @@ mod tests {
         write_doc(
             &root,
             "a.md",
-            "---\nname: a\nsummary: updated\ntags: [x]\n---\nbody new",
+            "---\nname: a\nsummary: updated\ntags: [x]\nstatus: validated\n---\nbody new",
         );
         let repair = db.repair_stale(&root).unwrap();
         assert_eq!(repair.updated, 1);
@@ -739,12 +757,12 @@ mod tests {
         write_doc(
             &root,
             "a.md",
-            "---\nname: a\nsummary: a\ntags: []\n---\n[[b.md]]",
+            "---\nname: a\nsummary: a\ntags: []\nstatus: validated\n---\n[[b.md]]",
         );
         write_doc(
             &root,
             "b.md",
-            "---\nname: b\nsummary: b\ntags: []\n---\nbody",
+            "---\nname: b\nsummary: b\ntags: []\nstatus: validated\n---\nbody",
         );
         let mut db = IndexDb::open(&root).unwrap();
         db.full_rebuild(&root).unwrap();
@@ -765,5 +783,38 @@ mod tests {
         let mut db = IndexDb::open(&root).unwrap();
         let result = db.upsert_doc(&root, "nonexistent/doc.md");
         assert!(result.is_err(), "upsert of missing file must error, not silently succeed");
+    }
+
+    #[test]
+    fn test_repair_stale_prunes_links_to_pending() {
+        let (_dir, root) = tmp_kb();
+        write_doc(
+            &root,
+            "a.md",
+            "---\nname: a\nsummary: a\ntags: []\nstatus: validated\n---\n[[b.md]]",
+        );
+        write_doc(
+            &root,
+            "b.md",
+            "---\nname: b\nsummary: b\ntags: []\n---\nb body",
+        );
+        let mut db = IndexDb::open(&root).unwrap();
+        db.full_rebuild(&root).unwrap();
+
+        // full_rebuild 后 A→B 被 prune(B 为 pending 不在索引)
+        assert!(db.outlinks("a.md").unwrap().is_empty());
+
+        // 改变 A 的 mtime,A 仍为 validated 仍链接 B
+        write_doc(
+            &root,
+            "a.md",
+            "---\nname: a\nsummary: a\ntags: []\nstatus: validated\n---\n[[b.md]]\nupdated",
+        );
+
+        db.repair_stale(&root).unwrap();
+
+        // repair_stale 应清理指向 pending B 的 link
+        assert!(db.outlinks("a.md").unwrap().is_empty(), "repair_stale 后不应有指向 pending 的 link");
+        assert!(db.all_links().unwrap().is_empty(), "links 表应为空");
     }
 }

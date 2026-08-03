@@ -29,14 +29,14 @@ impl KbGraph {
         }
 
         // 添加边
-        for (source, target, label) in db.all_links()? {
+        for (source, target, relation) in db.all_links()? {
             let s_idx = *node_index
                 .entry(source.clone())
                 .or_insert_with(|| graph.add_node(source));
             let t_idx = *node_index
                 .entry(target.clone())
                 .or_insert_with(|| graph.add_node(target));
-            graph.add_edge(s_idx, t_idx, label);
+            graph.add_edge(s_idx, t_idx, relation);
         }
 
         Ok(KbGraph { graph, node_index })
@@ -47,7 +47,7 @@ impl KbGraph {
         self.node_index.contains_key(doc)
     }
 
-    /// 返回邻居节点索引和边标签(去重)。
+    /// 返回邻居节点索引和边关系(去重)。
     fn neighbor_indices(
         &self,
         node: NodeIndex,
@@ -81,7 +81,7 @@ impl KbGraph {
         start: &str,
         max_hops: usize,
         bidir: bool,
-        label_filter: Option<&str>,
+        relation_filter: Option<&str>,
     ) -> Vec<TraversePath> {
         if !self.contains(start) {
             return Vec::new();
@@ -106,13 +106,13 @@ impl KbGraph {
                 path.iter().map(|(n, _)| n.as_str()).collect();
             let mut extended = false;
 
-            for (neighbor_idx, label) in self.neighbor_indices(current_idx, bidir) {
+            for (neighbor_idx, relation) in self.neighbor_indices(current_idx, bidir) {
                 let neighbor = self.graph[neighbor_idx].clone();
                 if visited_in_path.contains(neighbor.as_str()) {
                     continue;
                 }
                 let mut new_path = path.clone();
-                new_path.push((neighbor, label));
+                new_path.push((neighbor, relation));
                 queue.push_back(new_path);
                 extended = true;
             }
@@ -122,8 +122,8 @@ impl KbGraph {
             }
         }
 
-        // label_filter
-        if let Some(filter) = label_filter {
+        // relation_filter
+        if let Some(filter) = relation_filter {
             all_paths.retain(|p| {
                 p.iter()
                     .skip(1)
@@ -137,14 +137,14 @@ impl KbGraph {
         for p in all_paths {
             let target = p[p.len() - 1].0.clone();
             let hops = p.len() - 1;
-            let label_count = p.iter().skip(1).filter(|(_, l)| l.is_some()).count();
+            let relation_count = p.iter().skip(1).filter(|(_, l)| l.is_some()).count();
             match by_target.get(&target) {
                 None => {
-                    by_target.insert(target, (hops, label_count, p));
+                    by_target.insert(target, (hops, relation_count, p));
                 }
-                Some((ex_hops, ex_labels, _)) => {
-                    if hops < *ex_hops || (hops == *ex_hops && label_count > *ex_labels) {
-                        by_target.insert(target, (hops, label_count, p));
+                Some((ex_hops, ex_relations, _)) => {
+                    if hops < *ex_hops || (hops == *ex_hops && relation_count > *ex_relations) {
+                        by_target.insert(target, (hops, relation_count, p));
                     }
                 }
             }
@@ -153,7 +153,7 @@ impl KbGraph {
         let mut result: Vec<TraversePath> = Vec::new();
         for (_target, (hops, _, p)) in by_target {
             let nodes: Vec<String> = p.iter().map(|(n, _)| n.clone()).collect();
-            let labels: Vec<Option<String>> =
+            let relations: Vec<Option<String>> =
                 p.iter().skip(1).map(|(_, l)| l.clone()).collect();
             let via_root = if nodes.len() >= 3 {
                 nodes[1..nodes.len() - 1]
@@ -165,7 +165,7 @@ impl KbGraph {
             result.push(TraversePath {
                 hops,
                 path: nodes,
-                labels,
+                relations,
                 via_root,
             });
         }
@@ -239,22 +239,22 @@ mod tests {
         write_doc(
             &root,
             "zoloz/zoloz.md",
-            "---\nname: zoloz\nsummary: root\ntags: []\n---\n[[`zoloz/a.md`]]\n[[`zoloz/b.md`|rel]]",
+            "---\nname: zoloz\nsummary: root\ntags: []\nstatus: validated\n---\n[[`zoloz/a.md`]]\n[[`zoloz/b.md`|rel]]",
         );
         write_doc(
             &root,
             "zoloz/a.md",
-            "---\nname: a\nsummary: a\ntags: []\n---\n[[`zoloz/c.md`]]",
+            "---\nname: a\nsummary: a\ntags: []\nstatus: validated\n---\n[[`zoloz/c.md`]]",
         );
         write_doc(
             &root,
             "zoloz/b.md",
-            "---\nname: b\nsummary: b\ntags: []\n---\nbody",
+            "---\nname: b\nsummary: b\ntags: []\nstatus: validated\n---\nbody",
         );
         write_doc(
             &root,
             "zoloz/c.md",
-            "---\nname: c\nsummary: c\ntags: []\n---\nbody",
+            "---\nname: c\nsummary: c\ntags: []\nstatus: validated\n---\nbody",
         );
 
         let mut db = IndexDb::open(&root).unwrap();

@@ -1,6 +1,6 @@
 //! akb - agentic-knowledge-base CLI(Rust 重写版,SQLite + petgraph 索引)。
 //!
-//! 索引一致性策略:所有操作走 CLI,写命令(add/update/add-batch/rm)实时
+//! 索引一致性策略:所有操作走 CLI,写命令(add/update/rm)实时
 //! 单点增量更新索引(upsert_doc/remove_doc),读命令只读索引不扫文件系统。
 //! 全量重建(index --build)作为手动兜底;未来可加定时任务自动 full_rebuild。
 
@@ -37,7 +37,7 @@ enum Commands {
         #[arg(long)]
         reverse: bool,
     },
-    /// 图遍历(BFS,带边标签,按 target 去重)
+    /// 图遍历(BFS,带边关系,按 target 去重)
     Traverse {
         /// 起始文档路径
         #[arg(long = "from")]
@@ -48,9 +48,9 @@ enum Commands {
         /// 双向遍历(out+in)
         #[arg(long)]
         bidir: bool,
-        /// 只保留边标签等于此值的路径(精确匹配)
-        #[arg(long = "label-filter")]
-        label_filter: Option<String>,
+        /// 只保留边关系等于此值的路径(精确匹配)
+        #[arg(long = "relation-filter")]
+        relation_filter: Option<String>,
     },
     /// 列出全部 tag 或查指定 tag 的文档
     Tags {
@@ -76,7 +76,7 @@ enum Commands {
         #[arg(long)]
         summary: bool,
     },
-    /// 创建新文档 + 在父文档建立带标签 wiki-link
+    /// 创建新文档 + 在父文档建立带关系 wiki-link
     Add(AddArgs),
     /// 删除影响报告(只报告,不删文件)
     Rm {
@@ -85,12 +85,6 @@ enum Commands {
     },
     /// 更新文档(content/append/summary/name/tags/add-link)
     Update(UpdateArgs),
-    /// 从 JSON 数组批量创建文档
-    AddBatch {
-        /// JSON 数组文件路径
-        #[arg(long = "from-file")]
-        from_file: String,
-    },
     /// 初始化知识库目录 + 根文档 + INDEX.md
     Init(InitArgs),
     /// 健康检查(详细)
@@ -123,57 +117,39 @@ struct AddArgs {
     /// 父文档路径
     #[arg(long = "link-from")]
     link_from: String,
-    /// 边的语义关系(如:业务背景)
+    /// 关系
     #[arg(long)]
-    label: Option<String>,
-    /// frontmatter name
-    #[arg(long)]
-    name: Option<String>,
+    relation: Option<String>,
     /// frontmatter summary(文档摘要,必需)
     #[arg(long)]
     summary: String,
-    /// frontmatter description
-    #[arg(long)]
-    description: Option<String>,
     /// frontmatter category
     #[arg(long)]
     category: Option<String>,
-    /// frontmatter tag(可多次)
-    #[arg(long = "tags", value_name = "TAG")]
-    tags: Vec<String>,
+    /// frontmatter tags(格式 [tag1,tag2,...],必需)
+    #[arg(long)]
+    tags: String,
     /// 文档正文内容
-    #[arg(long, conflicts_with = "content_file")]
-    content: Option<String>,
-    /// 从文件读取文档正文
-    #[arg(long = "content-file", conflicts_with = "content")]
-    content_file: Option<String>,
+    #[arg(long)]
+    content: String,
 }
 
 #[derive(clap::Args)]
 struct InitArgs {
     /// 业务领域名(如 zoloz)
     domain: String,
-    /// frontmatter name(默认用 domain)
-    #[arg(long)]
-    name: Option<String>,
     /// frontmatter summary(根文档摘要,必需)
     #[arg(long)]
     summary: String,
-    /// frontmatter description(默认 "{domain} 业务领域根节点")
-    #[arg(long)]
-    description: Option<String>,
     /// frontmatter category(默认用 domain)
     #[arg(long)]
     category: Option<String>,
-    /// frontmatter tag(可多次,默认 [domain])
-    #[arg(long = "tags", value_name = "TAG")]
-    tags: Vec<String>,
+    /// frontmatter tags(格式 [tag1,tag2,...],默认 [domain])
+    #[arg(long)]
+    tags: String,
     /// 根文档正文内容
-    #[arg(long, conflicts_with = "content_file")]
-    content: Option<String>,
-    /// 从文件读取根文档正文
-    #[arg(long = "content-file", conflicts_with = "content")]
-    content_file: Option<String>,
+    #[arg(long)]
+    content: String,
 }
 
 #[derive(clap::Args)]
@@ -192,31 +168,40 @@ struct UpdateArgs {
     /// 更新 frontmatter name
     #[arg(long)]
     name: Option<String>,
-    /// 更新 frontmatter tag(可多次)
-    #[arg(long = "tags", value_name = "TAG")]
-    tags: Vec<String>,
+    /// 更新 frontmatter tags(格式 [tag1,tag2,...])
+    #[arg(long)]
+    tags: Option<String>,
     /// 追加 wiki-link(需配合 --to)
     #[arg(long = "add-link")]
     add_link: bool,
     /// --add-link 的目标文档路径
     #[arg(long)]
     to: Option<String>,
-    /// --add-link 的边标签
+    /// --add-link 的边关系
     #[arg(long)]
-    label: Option<String>,
+    relation: Option<String>,
 }
 
-/// 解析 --content 或 --content-file,返回正文内容。
-fn resolve_content(content: &Option<String>, content_file: &Option<String>) -> Result<String, String> {
-    if let Some(c) = content {
-        return Ok(c.clone());
-    }
-    if let Some(f) = content_file {
-        return std::fs::read_to_string(f).map_err(|e| format!("reading content file: {}", e));
-    }
-    Err("content is required (use --content or --content-file)".to_string())
-}
 
+/// 解析 tags 参数,格式 [tag1,tag2,...],校验后返回 Vec<String>。
+fn parse_tags(s: &str) -> Result<Vec<String>, String> {
+    let s = s.trim();
+    if !s.starts_with('[') || !s.ends_with(']') {
+        return Err(format!("tags 格式必须为 [tag1,tag2,...], got: {s}"));
+    }
+    let inner = &s[1..s.len() - 1];
+    if inner.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let tags: Vec<String> = inner
+        .split(',')
+        .map(|t| t.trim().to_string())
+        .collect();
+    if tags.iter().any(|t| t.is_empty()) {
+        return Err("tags 不允许空值".to_string());
+    }
+    Ok(tags)
+}
 /// stdout 输出 pretty-printed JSON(面向 AI Agent 的机器契约)。
 /// 错误分支也产出合法 JSON,保证下游 jq/解析器不崩。
 fn output_json(data: &Value) {
@@ -320,10 +305,10 @@ fn main() {
         }
     }
     let result: Result<Value, KbError> = match cli.command {
-        Commands::Init(args) => match resolve_content(&args.content, &args.content_file) {
-            Ok(content) => write::cmd_init(
-                &kb_root_abs, &args.domain, args.name.as_deref(), &args.summary,
-                args.description.as_deref(), args.category.as_deref(), args.tags, &content,
+        Commands::Init(args) => match parse_tags(&args.tags) {
+            Ok(tags) => write::cmd_init(
+                &kb_root_abs, &args.domain, &args.summary,
+                args.category.as_deref(), tags, &args.content,
             ),
             Err(e) => Err(KbError::Other(e)),
         },
@@ -334,29 +319,36 @@ fn main() {
                 Commands::Links { from, reverse } => {
                     search::cmd_links(&mut db, &kb_root_abs, &from, reverse)
                 }
-                Commands::Traverse { from, jumps, bidir, label_filter } => {
-                    search::cmd_traverse(&mut db, &kb_root_abs, &from, jumps, bidir, label_filter.as_deref())
+                Commands::Traverse { from, jumps, bidir, relation_filter } => {
+                    search::cmd_traverse(&mut db, &kb_root_abs, &from, jumps, bidir, relation_filter.as_deref())
                 }
                 Commands::Tags { tag } => search::cmd_tags(&mut db, &kb_root_abs, tag.as_deref()),
                 Commands::Search { keyword, top, context } => {
                     search::cmd_search(&mut db, &kb_root_abs, &keyword, top, context)
                 }
                 Commands::Show { doc, summary } => search::cmd_show(&kb_root_abs, &doc, summary),
-                Commands::Add(args) => match resolve_content(&args.content, &args.content_file) {
-                    Ok(content) => write::cmd_add(
-                        &mut db, &kb_root_abs, &args.doc_path, &args.link_from, args.label.as_deref(),
-                        args.name.as_deref(), &args.summary, args.description.as_deref(),
-                        args.category.as_deref(), args.tags, &content,
-                    ),
-                    Err(e) => Err(KbError::Other(e)),
+                Commands::Add(args) => {
+                    match parse_tags(&args.tags) {
+                        Ok(tags) => write::cmd_add(
+                            &mut db, &kb_root_abs, &args.doc_path, &args.link_from, args.relation.as_deref(),
+                            &args.summary, args.category.as_deref(),
+                            tags, &args.content,
+                        ),
+                        Err(e) => Err(KbError::Other(e)),
+                    }
                 },
                 Commands::Rm { doc } => write::cmd_rm(&mut db, &kb_root_abs, &doc),
-                Commands::Update(args) => write::cmd_update(
-                    &mut db, &kb_root_abs, &args.doc, args.content.as_deref(), args.append.as_deref(),
-                    args.summary.as_deref(), args.name.as_deref(), args.tags, args.add_link,
-                    args.to.as_deref(), args.label.as_deref(),
-                ),
-                Commands::AddBatch { from_file } => write::cmd_add_batch(&mut db, &kb_root_abs, &from_file),
+                Commands::Update(args) => {
+                    let tags = args.tags.as_deref().map(parse_tags).unwrap_or(Ok(vec![]));
+                    match tags {
+                        Ok(t) => write::cmd_update(
+                            &mut db, &kb_root_abs, &args.doc, args.content.as_deref(), args.append.as_deref(),
+                            args.summary.as_deref(), args.name.as_deref(), t, args.add_link,
+                            args.to.as_deref(), args.relation.as_deref(),
+                        ),
+                        Err(e) => Err(KbError::Other(e)),
+                    }
+                },
                 Commands::Doctor => health::cmd_doctor(&mut db, &kb_root_abs),
                 Commands::Stats => health::cmd_stats(&mut db, &kb_root_abs),
                 Commands::Init(_) => unreachable!(),

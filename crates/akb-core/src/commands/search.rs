@@ -57,12 +57,12 @@ pub fn cmd_links(
 
     let related: Vec<Value> = raw
         .iter()
-        .map(|(other, label)| {
+        .map(|(other, relation)| {
             let other_abs = Path::new(kb_root_abs)
                 .join(other.replace('/', std::path::MAIN_SEPARATOR_STR));
             json!({
                 "doc": other,
-                "label": label,
+                "relation": relation,
                 "exists": other_abs.exists(),
             })
         })
@@ -75,14 +75,14 @@ pub fn cmd_links(
     }))
 }
 
-/// kb traverse --from <doc> [-j N] [--bidir] [--label-filter <kw>]
+/// kb traverse --from <doc> [-j N] [--bidir] [--relation-filter <kw>]
 pub fn cmd_traverse(
     db: &mut IndexDb,
     _kb_root_abs: &str,
     from: &str,
     jumps: usize,
     bidir: bool,
-    label_filter: Option<&str>,
+    relation_filter: Option<&str>,
 ) -> Result<Value, KbError> {
     let doc = norm_doc_arg(from, ".knowledges");
     let graph = KbGraph::from_index(db)
@@ -92,7 +92,7 @@ pub fn cmd_traverse(
         return Err(KbError::Other(format!("{} not found in knowledge base", doc)));
     }
 
-    let paths = graph.traverse(&doc, jumps, bidir, label_filter);
+    let paths = graph.traverse(&doc, jumps, bidir, relation_filter);
     let direct: Vec<&crate::graph::TraversePath> =
         paths.iter().filter(|p| !p.via_root).collect();
     let via_root: Vec<&crate::graph::TraversePath> =
@@ -104,7 +104,7 @@ pub fn cmd_traverse(
         "from": doc,
         "max_hops": jumps,
         "bidir": bidir,
-        "label_filter": label_filter,
+        "relation_filter": relation_filter,
         "total_paths": paths_json.len(),
         "direct_paths": direct_json,
         "via_root_paths": via_root_json,
@@ -283,7 +283,6 @@ pub fn cmd_show(kb_root_abs: &str, doc: &str, summary_only: bool) -> Result<Valu
         "has_frontmatter": has_fm,
         "frontmatter": {
             "name": fm.name,
-            "description": fm.description,
             "summary": fm.summary,
             "category": fm.category,
             "tags": fm.tags,
@@ -315,12 +314,12 @@ mod tests {
         write_doc(
             &root,
             "zoloz/a.md",
-            "---\nname: a\nsummary: a summary\ntags: [alpha]\n---\n[[`.knowledges/zoloz/b.md`]]",
+            "---\nname: a\nsummary: a summary\ntags: [alpha]\nstatus: validated\n---\n[[`.knowledges/zoloz/b.md`]]",
         );
         write_doc(
             &root,
             "zoloz/b.md",
-            "---\nname: b\nsummary: b summary\ntags: [beta]\n---\nb body with keyword",
+            "---\nname: b\nsummary: b summary\ntags: [beta]\nstatus: validated\n---\nb body with keyword",
         );
         let mut db = IndexDb::open(&root).unwrap();
         db.full_rebuild(&root).unwrap();
@@ -334,17 +333,17 @@ mod tests {
         write_doc(
             &root,
             "zoloz/a.md",
-            "---\nname: a\nsummary: a\ntags: [alpha]\n---\n[[`.knowledges/zoloz/b.md`]]",
+            "---\nname: a\nsummary: a\ntags: [alpha]\nstatus: validated\n---\n[[`.knowledges/zoloz/b.md`]]",
         );
         write_doc(
             &root,
             "zoloz/b.md",
-            "---\nname: b\nsummary: b\ntags: [beta]\n---\n[[`.knowledges/zoloz/c.md`|关系]]",
+            "---\nname: b\nsummary: b\ntags: [beta]\nstatus: validated\n---\n[[`.knowledges/zoloz/c.md`|关系]]",
         );
         write_doc(
             &root,
             "zoloz/c.md",
-            "---\nname: c\nsummary: c\ntags: [gamma]\n---\nc body",
+            "---\nname: c\nsummary: c\ntags: [gamma]\nstatus: validated\n---\nc body",
         );
         let mut db = IndexDb::open(&root).unwrap();
         db.full_rebuild(&root).unwrap();
@@ -426,7 +425,7 @@ mod tests {
     }
 
     #[test]
-    fn test_traverse_label_filter() {
+    fn test_traverse_relation_filter() {
         let (_dir, root, mut db) = setup_abc_chain();
         // 带 "关系" 标签过滤
         let result = cmd_traverse(&mut db, &root, "zoloz/a.md", 2, false, Some("关系"));
@@ -435,7 +434,7 @@ mod tests {
         let graph = KbGraph::from_index(&db).unwrap();
         let paths = graph.traverse("zoloz/a.md", 2, false, Some("关系"));
         for p in &paths {
-            assert!(p.labels.iter().any(|l| l.as_deref() == Some("关系")));
+            assert!(p.relations.iter().any(|l| l.as_deref() == Some("关系")));
         }
     }
 

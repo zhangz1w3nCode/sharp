@@ -1,4 +1,4 @@
-//! commands/write.rs - 写入类子命令:init/add/rm/update/add-batch。
+//! commands/write.rs - 写入类子命令:init/add/rm/update。
 //!
 //! 所有写操作都会增量更新 SQLite 索引,保持文件系统权威地位。
 
@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use regex::Regex;
-use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::db::IndexDb;
@@ -15,9 +14,9 @@ use crate::error::KbError;
 use crate::graph::{is_root_doc, norm_doc_arg};
 use crate::graph_petgraph::KbGraph;
 use crate::index::{format_tree, scan_files};
-use crate::parser::{normalize_path, parse_frontmatter, Frontmatter};
+use crate::parser::{normalize_path, parse_frontmatter, parse_wikilinks};
 
-const INDEX_TEMPLATE: &str = "---\nname: INDEX\ndescription: 知识库全局索引\ntags: [index]\n---\n```\n{tree}\n```\n";
+const INDEX_TEMPLATE: &str = "---\nname: INDEX\nsummary: 知识库全局索引\ntags: [index]\nstatus: validated\n---\n```\n{tree}\n```\n";
 
 /// markdown bullet 前缀正则:^[-*+]\s+(.*)$
 static MD_BULLET_RE: OnceLock<Regex> = OnceLock::new();
@@ -64,25 +63,62 @@ fn flatten_summary(value: &str) -> String {
 
 /// 生成 frontmatter 文本。
 ///
-/// 序列化失败向上传播 KbError，而非 panic——所有写命令(init/add/update/add-batch)
-/// 均经此路径，panic 会让整个写操作无提示崩溃。
+/// 手动构建 YAML,tags 使用行内数组格式 [t1,t2]。
+fn yaml_scalar(s: &str) -> String {
+    if s.is_empty() {
+        return "''".to_string();
+    }
+    let needs_quote = s.starts_with('-')
+        || s.starts_with(' ')
+        || s.ends_with(' ')
+        || s.contains(':')
+        || s.contains('#')
+        || s.contains('{')
+        || s.contains('}')
+        || s.contains('[')
+        || s.contains(']')
+        || s.contains('&')
+        || s.contains('*')
+        || s.contains('!')
+        || s.contains('|')
+        || s.contains('>')
+        || s.contains('?')
+        || s.contains('@')
+        || s.contains('`')
+        || s.contains('"')
+        || s.contains('\'')
+        || s.contains('%')
+        || s.contains('\n')
+        || matches!(s, "null" | "Null" | "NULL" | "~");
+    if needs_quote {
+        format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
+    } else {
+        s.to_string()
+    }
+}
+
 fn build_frontmatter(
     name: &str,
-    description: &str,
     summary: &str,
     category: &str,
     tags: &[&str],
+    status: &str,
 ) -> Result<String, KbError> {
-    let fm = Frontmatter {
-        name: name.to_string(),
-        description: description.to_string(),
-        summary: flatten_summary(summary),
-        category: category.to_string(),
-        tags: tags.iter().map(|s| s.to_string()).collect(),
+    let summary = flatten_summary(summary);
+    let tags_str = if tags.is_empty() {
+        "[]".to_string()
+    } else {
+        let items: Vec<String> = tags.iter().map(|t| yaml_scalar(t)).collect();
+        format!("[{}]", items.join(", "))
     };
-    let yaml = serde_yaml::to_string(&fm)
-        .map_err(|e| KbError::Other(format!("frontmatter serialize: {e}")))?;
-    Ok(format!("---\n{}\n---", yaml.trim_end_matches('\n')))
+    let lines = [
+        format!("name: {}", yaml_scalar(name)),
+        format!("summary: {}", yaml_scalar(&summary)),
+        format!("category: {}", yaml_scalar(category)),
+        format!("tags: {}", tags_str),
+        format!("status: {}", yaml_scalar(status)),
+    ];
+    Ok(format!("---\n{}\n---", lines.join("\n")))
 }
 
 /// 组装完整文档:frontmatter + content,确保格式正确。
@@ -101,12 +137,12 @@ fn abs_path(kb_root_abs: &str, rel: &str) -> PathBuf {
     Path::new(kb_root_abs).join(rel.replace('/', std::path::MAIN_SEPARATOR_STR))
 }
 
-/// add_single 的返回结果(供 cmd_add/cmd_add_batch 组装输出)。
+/// add_single 的返回结果(供 cmd_add 组装输出)。
 #[derive(serde::Serialize)]
 struct AddOutcome {
     doc: String,
     linked_from: String,
-    label: Option<String>,
+    relation: Option<String>,
     name: String,
     created_dirs: Vec<String>,
 }
@@ -127,9 +163,7 @@ fn rebuild_index_md(kb_root_abs: &str) -> (usize, Option<String>) {
 pub fn cmd_init(
     kb_root_abs: &str,
     domain: &str,
-    name: Option<&str>,
     summary: &str,
-    description: Option<&str>,
     category: Option<&str>,
     tags: Vec<String>,
     content: &str,
@@ -163,10 +197,7 @@ pub fn cmd_init(
     if root_doc_abs.exists() {
         return Err(KbError::Other(format!("root doc already exists: {}", root_doc_rel)));
     }
-    let name = name.unwrap_or(&domain).to_string();
-    let description = description
-        .unwrap_or(&format!("{} 业务领域根节点", domain))
-        .to_string();
+    let name = domain.clone();
     if summary.is_empty() {
         return Err(KbError::Other("summary is required (use --summary)".into()));
     }
@@ -178,10 +209,10 @@ pub fn cmd_init(
     };
     let frontmatter = build_frontmatter(
         &name,
-        &description,
         summary,
         &category,
         &tags.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+        "pending",
     )?;
     let doc_content = assemble_doc(&frontmatter, content);
     if let Err(e) = std::fs::write(&root_doc_abs, doc_content) {
@@ -220,7 +251,7 @@ pub fn cmd_init(
     }))
 }
 
-/// 单个文档创建逻辑(供 cmd_add 和 cmd_add_batch 复用),不重建 INDEX。
+/// 单个文档创建逻辑(供 cmd_add 复用),不重建 INDEX。
 ///
 /// 返回 Ok(result_json) 或 Err(error_msg)。
 fn add_single(
@@ -229,9 +260,7 @@ fn add_single(
     link_from: &str,
     content: &str,
     summary: &str,
-    label: Option<&str>,
-    name: Option<&str>,
-    description: Option<&str>,
+    relation: Option<&str>,
     category: Option<&str>,
     tags: Option<&[String]>,
 ) -> Result<AddOutcome, String> {
@@ -264,14 +293,9 @@ fn add_single(
             created_dirs.push(dir_name);
         }
     }
-    // 生成文档
-    let name = name
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| {
-            let basename = doc_path.rsplit('/').next().unwrap_or(&doc_path);
-            basename.trim_end_matches(".md").to_string()
-        });
-    let description = description.unwrap_or("").to_string();
+    // name 从文件名推导
+    let basename = doc_path.rsplit('/').next().unwrap_or(&doc_path);
+    let name = basename.trim_end_matches(".md").to_string();
     if summary.is_empty() {
         return Err("summary is required".to_string());
     }
@@ -279,10 +303,10 @@ fn add_single(
     let tags: Vec<String> = tags.map(|t| t.iter().map(|s| s.to_string()).collect()).unwrap_or_default();
     let frontmatter = build_frontmatter(
         &name,
-        &description,
         summary,
         &category,
         &tags.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+        "pending",
     )
     .map_err(|e| e.to_string())?;
     let doc_content = assemble_doc(&frontmatter, content);
@@ -294,9 +318,9 @@ fn add_single(
         Ok(t) => t,
         Err(e) => return Err(format!("reading parent: {}", e)),
     };
-    let link_line = if let Some(label) = label {
-        if !label.is_empty() {
-            format!("- [[`.knowledges/{}`|{}]]", doc_path, label)
+    let link_line = if let Some(relation) = relation {
+        if !relation.is_empty() {
+            format!("- [[`.knowledges/{}`|{}]]", doc_path, relation)
         } else {
             format!("- [[`.knowledges/{}`]]", doc_path)
         }
@@ -314,7 +338,7 @@ fn add_single(
     Ok(AddOutcome {
         doc: doc_path,
         linked_from: parent,
-        label: label.map(|s| s.to_string()),
+        relation: relation.map(|s| s.to_string()),
         name,
         created_dirs,
     })
@@ -326,16 +350,14 @@ pub fn cmd_add(
     kb_root_abs: &str,
     doc_path: &str,
     link_from: &str,
-    label: Option<&str>,
-    name: Option<&str>,
+    relation: Option<&str>,
     summary: &str,
-    description: Option<&str>,
     category: Option<&str>,
     tags: Vec<String>,
     content: &str,
 ) -> Result<Value, KbError> {
     let o = match add_single(
-        kb_root_abs, doc_path, link_from, content, summary, label, name, description, category, Some(&tags),
+        kb_root_abs, doc_path, link_from, content, summary, relation, category, Some(&tags),
     ) {
         Ok(o) => o,
         Err(e) => return Err(KbError::Other(e)),
@@ -363,7 +385,7 @@ pub fn cmd_add(
     Ok(json!({
         "doc": o.doc,
         "linked_from": o.linked_from,
-        "label": o.label,
+        "relation": o.relation,
         "name": o.name,
         "created_dirs": o.created_dirs,
         "created": true,
@@ -404,11 +426,11 @@ pub fn cmd_rm(db: &mut IndexDb, kb_root_abs: &str, doc: &str) -> Result<Value, K
 
     let inlinks_data: Vec<Value> = inlinks
         .iter()
-        .map(|(s, l)| json!({"doc": s, "label": l}))
+        .map(|(s, l)| json!({"doc": s, "relation": l}))
         .collect();
     let outlinks_data: Vec<Value> = outlinks
         .iter()
-        .map(|(t, l)| json!({"doc": t, "label": l, "exists": doc_paths_set.contains(t)}))
+        .map(|(t, l)| json!({"doc": t, "relation": l, "exists": doc_paths_set.contains(t)}))
         .collect();
 
     // 孤儿风险
@@ -470,7 +492,7 @@ pub fn cmd_rm(db: &mut IndexDb, kb_root_abs: &str, doc: &str) -> Result<Value, K
         "outlinks": outlinks_data,
         "orphan_risk": orphan_risk,
         "reachability": reachability,
-        "hint": format!("to actually delete, run: rm {} (inlinks 字段列出指向本文档的引用,删除后它们会变成 dangling)", abs.display()),
+        "hint": format!("文档保留在磁盘,仅从索引移除。如需物理删除请手动 rm {} (inlinks 字段列出指向本文档的引用)", abs.display()),
     }))
 }
 
@@ -486,7 +508,7 @@ pub fn cmd_update(
     tags: Vec<String>,
     add_link: bool,
     to: Option<&str>,
-    label: Option<&str>,
+    relation: Option<&str>,
 ) -> Result<Value, KbError> {
     let doc = norm_doc_arg(doc, ".knowledges");
     let abs = abs_path(kb_root_abs, &doc);
@@ -496,7 +518,6 @@ pub fn cmd_update(
     };
     let (fm, body, _has_fm) = parse_frontmatter(&text);
     let mut name_val = fm.name;
-    let description_val = fm.description;
     let mut summary_val = fm.summary;
     let category_val = fm.category;
     let mut tags_val = fm.tags;
@@ -542,9 +563,9 @@ pub fn cmd_update(
             None => return Err(KbError::Other("--add-link requires --to <doc>".into())),
         };
         let target = normalize_path(to, ".knowledges");
-        let link_line = if let Some(label) = label {
-            if !label.is_empty() {
-                format!("- [[`.knowledges/{}`|{}]]", target, label)
+        let link_line = if let Some(relation) = relation {
+            if !relation.is_empty() {
+                format!("- [[`.knowledges/{}`|{}]]", target, relation)
             } else {
                 format!("- [[`.knowledges/{}`]]", target)
             }
@@ -566,10 +587,10 @@ pub fn cmd_update(
     // 重建 frontmatter + body
     let frontmatter = build_frontmatter(
         &name_val,
-        &description_val,
         &summary_val,
         &category_val,
         &tags_val.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+        "pending",
     )?;
     let new_text = assemble_doc(&frontmatter, &new_body);
     if let Err(e) = std::fs::write(&abs, new_text) {
@@ -588,104 +609,76 @@ pub fn cmd_update(
     }))
 }
 
-/// 批量创建的 JSON 数组每项结构。
-#[derive(Deserialize)]
-struct BatchItem {
-    doc_path: String,
-    link_from: String,
-    content: String,
-    summary: String,
-    #[serde(default)]
-    label: Option<String>,
-    #[serde(default)]
-    name: Option<String>,
-    #[serde(default)]
-    description: Option<String>,
-    #[serde(default)]
-    category: Option<String>,
-    #[serde(default)]
-    tags: Option<Vec<String>>,
-}
 
-/// kb add-batch --from-file <json>
-pub fn cmd_add_batch(
+/// 审核通过:将文档 status 改为 validated 并更新索引。
+/// 这是给 GUI(Tauri) 调用的核心 API,CLI 不暴露。
+/// review 后会重新 upsert 所有指向该文档的父文档,恢复入链。
+pub fn cmd_review(
     db: &mut IndexDb,
     kb_root_abs: &str,
-    from_file: &str,
+    doc: &str,
 ) -> Result<Value, KbError> {
-    let content = match std::fs::read_to_string(from_file) {
-        Ok(t) => t,
-        Err(e) => return Err(KbError::Other(format!("reading batch file: {}", e))),
-    };
-    let items: Vec<BatchItem> = match serde_json::from_str(&content) {
-        Ok(v) => v,
-        Err(e) => return Err(KbError::Other(format!("parsing JSON: {}", e))),
-    };
-    let mut created_details: Vec<Value> = Vec::new();
-    let mut failed_details: Vec<Value> = Vec::new();
-    for item in &items {
-        match add_single(
-            kb_root_abs,
-            &item.doc_path,
-            &item.link_from,
-            &item.content,
-            &item.summary,
-            item.label.as_deref(),
-            item.name.as_deref(),
-            item.description.as_deref(),
-            item.category.as_deref(),
-            item.tags.as_deref(),
-        ) {
-            Ok(o) => match serde_json::to_value(&o) {
-                Ok(v) => created_details.push(v),
-                Err(e) => failed_details.push(json!({
-                    "item": item.doc_path,
-                    "error": format!("serialize outcome: {e}"),
-                })),
-            },
-            Err(err) => {
-                failed_details.push(json!({
-                    "item": item.doc_path,
-                    "error": err,
-                }));
+    let mut doc = norm_doc_arg(doc, ".knowledges");
+    if !doc.ends_with(".md") {
+        doc.push_str(".md");
+    }
+    let abs = abs_path(kb_root_abs, &doc);
+    let text = std::fs::read_to_string(&abs)
+        .map_err(|e| KbError::Other(format!("reading {}: {}", doc, e)))?;
+    let (fm, body, has_fm) = parse_frontmatter(&text);
+    if !has_fm {
+        return Err(KbError::Other(format!("document has no frontmatter: {}", doc)));
+    }
+    let already_validated = fm.status == "validated";
+    let frontmatter = build_frontmatter(
+        &fm.name,
+        &fm.summary,
+        &fm.category,
+        &fm.tags.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+        "validated",
+    )?;
+    let new_text = assemble_doc(&frontmatter, &body);
+    std::fs::write(&abs, new_text)
+        .map_err(|e| KbError::Other(format!("writing {}: {}", doc, e)))?;
+    db.upsert_doc(kb_root_abs, &doc)?;
+    // Re-upsert parent docs that link to this doc to restore incoming links
+    // that were deleted while the doc was pending.
+    // Skip when already validated: links are already in place from the prior review.
+    let mut index_warnings: Vec<String> = Vec::new();
+    if !already_validated {
+        let doc_with_md = doc.clone();
+        let files: Vec<String> = db.all_docs_meta()
+            .map_err(|e| KbError::Other(format!("all_docs_meta: {}", e)))?
+            .iter()
+            .map(|d| d.path.clone())
+            .collect();
+        for file in &files {
+            if file == &doc_with_md { continue; }
+            let file_abs = abs_path(kb_root_abs, file);
+            let file_text = match std::fs::read_to_string(&file_abs) {
+                Ok(t) => t,
+                Err(_) => continue,
+            };
+            let links = parse_wikilinks(&file_text, ".knowledges");
+            let links_to_doc = links.iter().any(|(target, _)| {
+                let t = if target.ends_with(".md") { target.clone() } else { format!("{}.md", target) };
+                t == doc_with_md
+            });
+            if links_to_doc {
+                if let Err(e) = db.upsert_doc(kb_root_abs, file) {
+                    index_warnings.push(format!("re-upsert {}: {}", file, e));
+                }
             }
         }
     }
-
-    // 增量更新索引:每个 item 的 doc_path 和 link_from
-    let mut index_warnings: Vec<String> = Vec::new();
-    let mut all_upsert_ok = true;
-    for item in &items {
-        let doc = normalize_path(&item.doc_path, ".knowledges");
-        let parent = normalize_path(&item.link_from, ".knowledges");
-        let doc_with_ext = if doc.ends_with(".md") { doc } else { format!("{}.md", doc) };
-        if let Err(e) = db.upsert_doc(kb_root_abs, &doc_with_ext) {
-            index_warnings.push(format!("upsert {}: {}", doc_with_ext, e));
-            all_upsert_ok = false;
-        }
-        if let Err(e) = db.upsert_doc(kb_root_abs, &parent) {
-            index_warnings.push(format!("upsert {}: {}", parent, e));
-            all_upsert_ok = false;
-        }
-    }
-
-    // 最后重建 INDEX 一次
-    let (total, idx_err) = rebuild_index_md(kb_root_abs);
-    if let Some(e) = idx_err {
-        index_warnings.push(e);
-    }
-
     Ok(json!({
-        "total": items.len(),
-        "created": created_details.len(),
-        "failed": failed_details.len(),
-        "created_details": created_details,
-        "failed_details": failed_details,
-        "index_updated": all_upsert_ok,
-        "total_documents": total,
+        "doc": doc,
+        "status": "validated",
+        "already_validated": already_validated,
         "index_warnings": index_warnings,
     }))
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -704,15 +697,14 @@ mod tests {
         let result = cmd_init(
             &root,
             "zoloz",
-            None,
             "root summary",
             None,
-            None,
             vec![],
-            "root content",
+            "root content"
         );
         assert!(result.is_ok());
-        let db = IndexDb::open(&root).unwrap();
+        let mut db = IndexDb::open(&root).unwrap();
+        cmd_review(&mut db, &root, "zoloz/zoloz.md").unwrap();
         (dir, root, db)
     }
 
@@ -738,12 +730,10 @@ mod tests {
         let result = cmd_init(
             &root,
             "zoloz",
-            Some("ZolozName"),
             "zoloz summary",
             None,
-            None,
             vec!["tag1".to_string()],
-            "root body",
+            "root body"
         );
         assert!(result.is_ok());
         let v = result.unwrap();
@@ -761,12 +751,13 @@ mod tests {
         let text = read_doc(&root, "zoloz/zoloz.md");
         let (fm, _, has_fm) = parse_frontmatter(&text);
         assert!(has_fm);
-        assert_eq!(fm.name, "ZolozName");
+        assert_eq!(fm.name, "zoloz");
         assert_eq!(fm.summary, "zoloz summary");
         assert!(fm.tags.contains(&"tag1".to_string()));
 
         // full_rebuild 后索引有 1 文档
         let mut db = IndexDb::open(&root).unwrap();
+        cmd_review(&mut db, &root, "zoloz/zoloz.md").unwrap();
         let stats = db.full_rebuild(&root).unwrap();
         assert_eq!(stats.indexed, 1);
         let docs = db.all_docs_meta().unwrap();
@@ -779,22 +770,24 @@ mod tests {
         let (_dir, root) = setup_kb();
         // 预先创建 root doc
         write_doc(&root, "zoloz/zoloz.md", "existing");
-        let result = cmd_init(&root, "zoloz", None, "s", None, None, vec![], "c");
+        let result = cmd_init(&root, "zoloz", "s", None, vec![], "c");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_init_empty_domain() {
         let (_dir, root) = setup_kb();
-        let result = cmd_init(&root, "", None, "s", None, None, vec![], "c");
+        let result = cmd_init(&root, "", "s", None, vec![], "c");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_init_default_name_tags() {
         let (_dir, root) = setup_kb();
-        let result = cmd_init(&root, "zoloz", None, "s", None, None, vec![], "c");
+        let result = cmd_init(&root, "zoloz", "s", None, vec![], "c");
         assert!(result.is_ok());
+        let mut db = IndexDb::open(&root).unwrap();
+        cmd_review(&mut db, &root, "zoloz/zoloz.md").unwrap();
         let text = read_doc(&root, "zoloz/zoloz.md");
         let (fm, _, _) = parse_frontmatter(&text);
         // 不传 name/tags 时默认用 domain
@@ -816,13 +809,13 @@ mod tests {
             "zoloz/sub.md",
             "zoloz/zoloz.md",
             None,
-            None,
             "sub summary",
             None,
-            None,
-            vec![],
-            "sub content",
+            vec!["tag1".to_string()],
+            "sub content"
         );
+        cmd_review(&mut db, &root, "zoloz/sub.md").unwrap();
+        db.upsert_doc(&root, "zoloz/zoloz.md").unwrap();
         assert!(result.is_ok());
 
         // 新文档存在
@@ -842,7 +835,7 @@ mod tests {
     }
 
     #[test]
-    fn test_add_with_label() {
+    fn test_add_with_relation() {
         let (_dir, root, mut db) = setup_kb_with_docs();
         let result = cmd_add(
             &mut db,
@@ -850,20 +843,20 @@ mod tests {
             "zoloz/sub.md",
             "zoloz/zoloz.md",
             Some("关系"),
-            None,
             "sub summary",
             None,
-            None,
-            vec![],
-            "sub content",
+            vec!["tag1".to_string()],
+            "sub content"
         );
+        cmd_review(&mut db, &root, "zoloz/sub.md").unwrap();
+        db.upsert_doc(&root, "zoloz/zoloz.md").unwrap();
         assert!(result.is_ok());
 
         // 父文档 link 行含 |关系 标签
         let parent_text = read_doc(&root, "zoloz/zoloz.md");
         assert!(parent_text.contains("|关系]]"));
 
-        // db.outlinks 返回 Some(label)
+        // db.outlinks 返回 Some(relation)
         let out = db.outlinks("zoloz/zoloz.md").unwrap();
         let found = out.iter().find(|(t, _)| t == "zoloz/sub.md");
         assert!(found.is_some());
@@ -880,13 +873,12 @@ mod tests {
             "zoloz/sub.md",
             "zoloz/zoloz.md",
             None,
-            None,
             "sub summary",
             None,
-            None,
-            vec![],
-            "content",
+            vec!["tag1".to_string()],
+            "content"
         ).unwrap();
+        cmd_review(&mut db, &root, "zoloz/sub.md").unwrap();
         // 再次添加同文档
         let result = cmd_add(
             &mut db,
@@ -894,12 +886,10 @@ mod tests {
             "zoloz/sub.md",
             "zoloz/zoloz.md",
             None,
-            None,
             "sub summary",
             None,
-            None,
-            vec![],
-            "content",
+            vec!["tag1".to_string()],
+            "content"
         );
         assert!(result.is_err());
     }
@@ -913,12 +903,10 @@ mod tests {
             "zoloz/sub.md",
             "zoloz/nonexistent.md",
             None,
-            None,
             "sub summary",
             None,
-            None,
-            vec![],
-            "content",
+            vec!["tag1".to_string()],
+            "content"
         );
         assert!(result.is_err());
     }
@@ -933,75 +921,16 @@ mod tests {
             "zoloz/noext",
             "zoloz/zoloz.md",
             None,
-            None,
             "s",
             None,
-            None,
-            vec![],
-            "c",
+            vec!["tag1".to_string()],
+            "c"
         );
+        cmd_review(&mut db, &root, "zoloz/noext.md").unwrap();
+        db.upsert_doc(&root, "zoloz/zoloz.md").unwrap();
         assert!(result.is_ok());
         // 自动补齐 .md
         assert!(Path::new(&root).join("zoloz").join("noext.md").exists());
-    }
-
-    // ===== cmd_add_batch =====
-
-    #[test]
-    fn test_add_batch_success() {
-        let (_dir, root, mut db) = setup_kb_with_docs();
-        let json = r#"[
-            {"doc_path":"zoloz/a.md","link_from":"zoloz/zoloz.md","content":"a body","summary":"a summary"},
-            {"doc_path":"zoloz/b.md","link_from":"zoloz/zoloz.md","content":"b body","summary":"b summary"}
-        ]"#;
-        let batch_path = Path::new(&root).join("batch.json");
-        std::fs::write(&batch_path, json).unwrap();
-
-        let result = cmd_add_batch(&mut db, &root, &batch_path.to_string_lossy());
-        assert!(result.is_ok());
-
-        // 两项全部创建
-        assert!(Path::new(&root).join("zoloz").join("a.md").exists());
-        assert!(Path::new(&root).join("zoloz").join("b.md").exists());
-
-        // 索引数量正确(root + a + b = 3)
-        let docs = db.all_docs_meta().unwrap();
-        assert_eq!(docs.len(), 3);
-
-        // INDEX.md 更新
-        let index_text = read_doc(&root, "INDEX.md");
-        assert!(index_text.contains("a.md") || index_text.contains("zoloz"));
-    }
-
-    #[test]
-    fn test_add_batch_partial_failure() {
-        let (_dir, root, mut db) = setup_kb_with_docs();
-        // 先创建 zoloz/a.md
-        cmd_add(
-            &mut db,
-            &root,
-            "zoloz/a.md",
-            "zoloz/zoloz.md",
-            None,
-            None,
-            "a summary",
-            None,
-            None,
-            vec![],
-            "a content",
-        ).unwrap();
-        // batch 中 a.md 已存在(会失败),b.md 会成功
-        let json = r#"[
-            {"doc_path":"zoloz/a.md","link_from":"zoloz/zoloz.md","content":"dup","summary":"dup"},
-            {"doc_path":"zoloz/b.md","link_from":"zoloz/zoloz.md","content":"b body","summary":"b summary"}
-        ]"#;
-        let batch_path = Path::new(&root).join("batch.json");
-        std::fs::write(&batch_path, json).unwrap();
-
-        let result = cmd_add_batch(&mut db, &root, &batch_path.to_string_lossy());
-        // 成功项仍创建,退出码仍 0
-        assert!(result.is_ok());
-        assert!(Path::new(&root).join("zoloz").join("b.md").exists());
     }
 
     // ===== cmd_update =====
@@ -1015,13 +944,12 @@ mod tests {
             "zoloz/a.md",
             "zoloz/zoloz.md",
             None,
-            None,
             "a summary",
             None,
-            None,
-            vec![],
-            "original body",
+            vec!["tag1".to_string()],
+            "original body"
         ).unwrap();
+        cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
 
         let result = cmd_update(
             &mut db,
@@ -1037,6 +965,7 @@ mod tests {
             None,
         );
         assert!(result.is_ok());
+        cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
 
         // 正文被替换
         let text = read_doc(&root, "zoloz/a.md");
@@ -1061,13 +990,12 @@ mod tests {
             "zoloz/a.md",
             "zoloz/zoloz.md",
             None,
-            None,
             "a summary",
             None,
-            None,
-            vec![],
-            "original body",
+            vec!["tag1".to_string()],
+            "original body"
         ).unwrap();
+        cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
 
         let result = cmd_update(
             &mut db,
@@ -1100,13 +1028,12 @@ mod tests {
             "zoloz/a.md",
             "zoloz/zoloz.md",
             Some("oldname"),
-            None,
             "old summary",
             None,
-            None,
-            vec![],
-            "body",
+            vec!["tag1".to_string()],
+            "body"
         ).unwrap();
+        cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
 
         let result = cmd_update(
             &mut db,
@@ -1122,6 +1049,7 @@ mod tests {
             None,
         );
         assert!(result.is_ok());
+        cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
 
         // all_docs_meta 反映新值
         let docs = db.all_docs_meta().unwrap();
@@ -1140,13 +1068,12 @@ mod tests {
             "zoloz/a.md",
             "zoloz/zoloz.md",
             None,
-            None,
             "a summary",
             None,
-            None,
-            vec![],
-            "body",
+            vec!["tag1".to_string()],
+            "body"
         ).unwrap();
+        cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
 
         // a.md 原本无 outlinks
         let before = db.outlinks("zoloz/a.md").unwrap();
@@ -1166,6 +1093,12 @@ mod tests {
             None,
         );
         assert!(result.is_ok());
+        cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
+        // target.md 需要存在且 validated 才能在索引中保留 link
+        write_doc(&root, "zoloz/target.md", "---\nname: target\nsummary: target\ntags: []\nstatus: validated\n---\ntarget body");
+        db.upsert_doc(&root, "zoloz/target.md").unwrap();
+        // a.md 的 outlinks 需要重新 upsert 才能看到 target.md
+        db.upsert_doc(&root, "zoloz/a.md").unwrap();
 
         // outlinks 数量+1
         let after = db.outlinks("zoloz/a.md").unwrap();
@@ -1186,13 +1119,12 @@ mod tests {
             "zoloz/a.md",
             "zoloz/zoloz.md",
             None,
-            None,
             "a summary",
             None,
-            None,
-            vec![],
-            "body",
+            vec!["tag1".to_string()],
+            "body"
         ).unwrap();
+        cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
         let result = cmd_update(
             &mut db,
             &root,
@@ -1239,13 +1171,12 @@ mod tests {
             "zoloz/a.md",
             "zoloz/zoloz.md",
             None,
-            None,
             "a summary",
             None,
-            None,
-            vec![],
-            "a body",
+            vec!["tag1".to_string()],
+            "a body"
         ).unwrap();
+        cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
         let doc_abs = Path::new(&root).join("zoloz").join("a.md");
 
         let result = cmd_rm(&mut db, &root, "zoloz/a.md");
@@ -1273,26 +1204,26 @@ mod tests {
             "zoloz/a.md",
             "zoloz/zoloz.md",
             None,
-            None,
             "a summary",
             None,
-            None,
-            vec![],
-            "a body",
+            vec!["tag1".to_string()],
+            "a body"
         ).unwrap();
+        cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
+        db.upsert_doc(&root, "zoloz/zoloz.md").unwrap();
         cmd_add(
             &mut db,
             &root,
             "zoloz/b.md",
             "zoloz/a.md",
             None,
-            None,
             "b summary",
             None,
-            None,
-            vec![],
-            "b body",
+            vec!["tag1".to_string()],
+            "b body"
         ).unwrap();
+        cmd_review(&mut db, &root, "zoloz/b.md").unwrap();
+        db.upsert_doc(&root, "zoloz/a.md").unwrap();
         // 删除前交叉验证:b 的唯一入链源是 a
         let b_inlinks = db.inlinks("zoloz/b.md").unwrap();
         assert!(!b_inlinks.is_empty());
@@ -1319,13 +1250,12 @@ mod tests {
 
     #[test]
     fn test_build_frontmatter_special_chars() {
-        // name/description 含 YAML 危险字符(: # 等)不应破坏 frontmatter
-        let fm = build_frontmatter("a: b", "desc # with hash", "summary", "cat", &["t1"]).unwrap();
+        // name 含 YAML 危险字符(: # 等)不应破坏 frontmatter
+        let fm = build_frontmatter("a: b", "summary", "cat", &["t1"], "pending").unwrap();
         let (parsed, _body, has_fm) =
             parse_frontmatter(&format!("{}\nbody", fm));
         assert!(has_fm);
         assert_eq!(parsed.name, "a: b");
-        assert_eq!(parsed.description, "desc # with hash");
         assert_eq!(parsed.summary, "summary");
         assert_eq!(parsed.category, "cat");
         assert_eq!(parsed.tags, vec!["t1".to_string()]);

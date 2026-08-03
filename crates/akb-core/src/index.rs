@@ -166,7 +166,7 @@ pub fn tree_to_value(files: &[String]) -> serde_json::Value {
 pub fn rebuild_index_content(files: &[String]) -> String {
     let tree_str = format_tree(files);
     format!(
-        "---\nname: INDEX\ndescription: 知识库全局索引\ntags: [index]\n---\n```\n{}\n```\n",
+        "---\nname: INDEX\nsummary: 知识库全局索引\ntags: [index]\nstatus: validated\n---\n```\n{}\n```\n",
         tree_str
     )
 }

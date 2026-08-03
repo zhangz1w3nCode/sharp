@@ -31,6 +31,6 @@ pub fn norm_doc_arg(doc_arg: &str, kb_root: &str) -> String {
 pub struct TraversePath {
     pub hops: usize,
     pub path: Vec<String>,
-    pub labels: Vec<Option<String>>,
+    pub relations: Vec<Option<String>>,
     pub via_root: bool,
 }

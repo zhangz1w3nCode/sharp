@@ -6,10 +6,12 @@ use std::path::Path;
 use serde_json::{json, Value};
 
 use crate::db::IndexDb;
-use crate::graph::is_root_doc;
 use crate::error::KbError;
-use crate::util::round2;
+use crate::graph::is_root_doc;
 use crate::graph_petgraph::KbGraph;
+use crate::index::scan_files;
+use crate::parser::{parse_frontmatter, parse_wikilinks};
+use crate::util::round2;
 
 /// 判断 target 路径在文件系统上是否可达(支持跨库)。
 ///
@@ -30,6 +32,50 @@ fn is_reachable(target: &str, kb_root_abs: &str) -> bool {
     candidates.iter().any(|p| p.exists())
 }
 
+/// 从文件系统扫描 wiki-links,返回所有指向不可达目标的断链。
+/// (source, target, relation) 列表,与索引的 pruned links 表无关。
+fn scan_dangling_links(kb_root_abs: &str) -> Vec<(String, String, Option<String>)> {
+    let files = scan_files(kb_root_abs);
+    let mut dangling: Vec<(String, String, Option<String>)> = Vec::new();
+    for file in &files {
+        let file_abs = Path::new(kb_root_abs)
+            .join(file.replace('/', std::path::MAIN_SEPARATOR_STR));
+        let text = match std::fs::read_to_string(&file_abs) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        let links = parse_wikilinks(&text, ".knowledges");
+        for (target, relation) in &links {
+            if is_reachable(target, kb_root_abs) {
+                continue;
+            }
+            dangling.push((file.clone(), target.clone(), relation.clone()));
+        }
+    }
+    dangling
+}
+
+/// 从文件系统扫描无 frontmatter 的文档。
+/// 无 frontmatter 的文档 status 默认 pending,不在索引中,因此不能从 docs_meta 检测。
+fn scan_missing_frontmatter(kb_root_abs: &str) -> Vec<String> {
+    let files = scan_files(kb_root_abs);
+    let mut missing: Vec<String> = Vec::new();
+    for file in &files {
+        let file_abs = Path::new(kb_root_abs)
+            .join(file.replace('/', std::path::MAIN_SEPARATOR_STR));
+        let text = match std::fs::read_to_string(&file_abs) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        let (_fm, _body, has_fm) = parse_frontmatter(&text);
+        if !has_fm {
+            missing.push(file.clone());
+        }
+    }
+    missing.sort();
+    missing
+}
+
 /// kb doctor - 知识库健康检查。
 pub fn cmd_doctor(db: &mut IndexDb, kb_root_abs: &str) -> Result<Value, KbError> {
     let docs_meta = db.all_docs_meta()
@@ -46,15 +92,15 @@ pub fn cmd_doctor(db: &mut IndexDb, kb_root_abs: &str) -> Result<Value, KbError>
 
     let mut outlinks: HashMap<String, Vec<(String, Option<String>)>> = HashMap::new();
     let mut inlinks: HashMap<String, Vec<(String, Option<String>)>> = HashMap::new();
-    for (source, target, label) in &all_links {
+    for (source, target, relation) in &all_links {
         outlinks
             .entry(source.clone())
             .or_default()
-            .push((target.clone(), label.clone()));
+            .push((target.clone(), relation.clone()));
         inlinks
             .entry(target.clone())
             .or_default()
-            .push((source.clone(), label.clone()));
+            .push((source.clone(), relation.clone()));
     }
 
     // 1. 连通性
@@ -95,23 +141,18 @@ pub fn cmd_doctor(db: &mut IndexDb, kb_root_abs: &str) -> Result<Value, KbError>
     }
     orphans.sort();
 
-    // 3. 真断链
-    let mut dangling: Vec<Value> = Vec::new();
-    for doc in &docs_meta {
-        for (tgt, label) in &doc.outlinks {
-            if doc_paths.contains(tgt) {
-                continue;
-            }
-            if is_reachable(tgt, kb_root_abs) {
-                continue;
-            }
-            dangling.push(json!({
-                "source": doc.path,
-                "target": tgt,
-                "label": label,
-            }));
-        }
-    }
+    // 3. 真断链 (从文件系统扫描,不依赖索引的 pruned links 表)
+    let raw_dangling = scan_dangling_links(kb_root_abs);
+    let mut dangling: Vec<Value> = raw_dangling
+        .iter()
+        .map(|(source, target, relation)| {
+            json!({
+                "source": source,
+                "target": target,
+                "relation": relation,
+            })
+        })
+        .collect();
     dangling.sort_by(|a, b| {
         let sa = a["source"].as_str().unwrap_or("");
         let sb = b["source"].as_str().unwrap_or("");
@@ -158,13 +199,8 @@ pub fn cmd_doctor(db: &mut IndexDb, kb_root_abs: &str) -> Result<Value, KbError>
         })
         .collect();
 
-    // 5. frontmatter 缺失
-    let mut missing_fm: Vec<String> = docs_meta
-        .iter()
-        .filter(|d| !d.has_frontmatter)
-        .map(|d| d.path.clone())
-        .collect();
-    missing_fm.sort();
+    // 5. frontmatter 缺失(从文件系统扫描,无 frontmatter 的文档为 pending 不在索引中)
+    let missing_fm = scan_missing_frontmatter(kb_root_abs);
 
     // 6. tag 摘要
     let mut tag_map: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -287,15 +323,15 @@ pub fn cmd_stats(db: &mut IndexDb, kb_root_abs: &str) -> Result<Value, KbError> 
     // inlinks/outlinks maps for counts
     let mut inlinks: HashMap<String, Vec<(String, Option<String>)>> = HashMap::new();
     let mut outlinks: HashMap<String, Vec<(String, Option<String>)>> = HashMap::new();
-    for (source, target, label) in &all_links {
+    for (source, target, relation) in &all_links {
         outlinks
             .entry(source.clone())
             .or_default()
-            .push((target.clone(), label.clone()));
+            .push((target.clone(), relation.clone()));
         inlinks
             .entry(target.clone())
             .or_default()
-            .push((source.clone(), label.clone()));
+            .push((source.clone(), relation.clone()));
     }
     // health_score
     let graph = KbGraph::from_index(db)
@@ -329,21 +365,7 @@ pub fn cmd_stats(db: &mut IndexDb, kb_root_abs: &str) -> Result<Value, KbError> 
         c
     };
 
-    let dangling_count = {
-        let mut c = 0;
-        for doc in &docs_meta {
-            for (tgt, _) in &doc.outlinks {
-                if doc_paths.contains(tgt) {
-                    continue;
-                }
-                if is_reachable(tgt, kb_root_abs) {
-                    continue;
-                }
-                c += 1;
-            }
-        }
-        c
-    };
+    let dangling_count = scan_dangling_links(kb_root_abs).len();
 
     let isolated_count = {
         let mut c = 0;
@@ -364,10 +386,11 @@ pub fn cmd_stats(db: &mut IndexDb, kb_root_abs: &str) -> Result<Value, KbError> 
         c
     };
 
+    // health_score: 启发式近似,一个 doc 可能同时属于多个类别(如 unreachable + isolated),
+    // 因此分子可能偏低。dangling_count 是链接数非文档数,与 total 不同域,仅做粗略扣减。
     let health_score = if total > 0 {
-        round2(
-            (total - unreachable_count - isolated_count - dangling_count) as f64 / total as f64,
-        )
+        let healthy = total.saturating_sub(unreachable_count).saturating_sub(isolated_count).saturating_sub(dangling_count);
+        round2(healthy as f64 / total as f64)
     } else {
         0.0
     };
@@ -430,17 +453,17 @@ mod tests {
         write_doc(
             &root,
             "zoloz/zoloz.md",
-            "---\nname: zoloz\nsummary: root\ntags: [root]\n---\n[[`.knowledges/zoloz/a.md`]]",
+            "---\nname: zoloz\nsummary: root\ntags: [root]\nstatus: validated\n---\n[[`.knowledges/zoloz/a.md`]]",
         );
         write_doc(
             &root,
             "zoloz/a.md",
-            "---\nname: a\nsummary: a\ntags: [alpha]\n---\n[[`.knowledges/zoloz/b.md`]]",
+            "---\nname: a\nsummary: a\ntags: [alpha]\nstatus: validated\n---\n[[`.knowledges/zoloz/b.md`]]",
         );
         write_doc(
             &root,
             "zoloz/b.md",
-            "---\nname: b\nsummary: b\ntags: [beta]\n---\n[[`.knowledges/zoloz/zoloz.md`]]",
+            "---\nname: b\nsummary: b\ntags: [beta]\nstatus: validated\n---\n[[`.knowledges/zoloz/zoloz.md`]]",
         );
         let mut db = IndexDb::open(&root).unwrap();
         db.full_rebuild(&root).unwrap();
@@ -451,7 +474,7 @@ mod tests {
     fn setup_empty_kb() -> (tempfile::TempDir, String, IndexDb) {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_string_lossy().to_string();
-        let result = cmd_init(&root, "zoloz", None, "root summary", None, None, vec![], "root content");
+        let result = cmd_init(&root, "zoloz", "root summary", None, vec![], "root content");
         assert!(result.is_ok());
         let db = IndexDb::open(&root).unwrap();
         (dir, root, db)
@@ -484,17 +507,17 @@ mod tests {
         write_doc(
             &root,
             "zoloz/zoloz.md",
-            "---\nname: zoloz\nsummary: root\ntags: [root]\n---\n[[`.knowledges/zoloz/a.md`]]",
+            "---\nname: zoloz\nsummary: root\ntags: [root]\nstatus: validated\n---\n[[`.knowledges/zoloz/a.md`]]",
         );
         write_doc(
             &root,
             "zoloz/a.md",
-            "---\nname: a\nsummary: a\ntags: [alpha]\n---\na body",
+            "---\nname: a\nsummary: a\ntags: [alpha]\nstatus: validated\n---\na body",
         );
         write_doc(
             &root,
             "zoloz/b.md",
-            "---\nname: b\nsummary: b\ntags: [beta]\n---\nb body",
+            "---\nname: b\nsummary: b\ntags: [beta]\nstatus: validated\n---\nb body",
         );
         let mut db = IndexDb::open(&root).unwrap();
         db.full_rebuild(&root).unwrap();
@@ -527,27 +550,19 @@ mod tests {
         write_doc(
             &root,
             "zoloz/zoloz.md",
-            "---\nname: zoloz\nsummary: root\ntags: [root]\n---\n[[`.knowledges/zoloz/nonexistent.md`]]",
+            "---\nname: zoloz\nsummary: root\ntags: [root]\nstatus: validated\n---\n[[`.knowledges/zoloz/nonexistent.md`]]",
         );
         let mut db = IndexDb::open(&root).unwrap();
         db.full_rebuild(&root).unwrap();
 
         let result = cmd_doctor(&mut db, &root);
         assert!(result.is_ok());
-
-        // 交叉验证:link target 不在 doc_paths 中
-        let docs = db.all_docs_meta().unwrap();
-        let doc_paths: HashSet<String> = docs.iter().map(|d| d.path.clone()).collect();
-        for d in &docs {
-            for (t, _) in &d.outlinks {
-                if !doc_paths.contains(t) {
-                    // 找到 dangling link
-                    assert!(true);
-                    return;
-                }
-            }
-        }
-        panic!("expected at least one dangling link");
+        let v = result.unwrap();
+        // doctor 从文件系统扫描 wiki-links,应检测到指向 nonexistent.md 的断链
+        let dangling = v["dangling_links"].as_array().unwrap();
+        assert!(!dangling.is_empty(), "should detect dangling link to nonexistent.md");
+        assert_eq!(dangling[0]["source"], "zoloz/zoloz.md");
+        assert_eq!(dangling[0]["target"], "zoloz/nonexistent.md");
     }
 
     #[test]
@@ -559,7 +574,7 @@ mod tests {
         write_doc(
             &root,
             "zoloz/a.md",
-            "---\nname: a\nsummary: a\ntags: []\n---\na body",
+            "---\nname: a\nsummary: a\ntags: []\nstatus: validated\n---\na body",
         );
         let mut db = IndexDb::open(&root).unwrap();
         db.full_rebuild(&root).unwrap();
@@ -568,10 +583,13 @@ mod tests {
         assert!(result.is_ok());
         let v = result.unwrap();
         assert!(v.get("command").is_none(), "core 返回值不应含 command 字段");
-        // 交叉调 db.all_docs_meta 验证 has_frontmatter=false
+        // doctor 从文件系统扫描,应检测到无 frontmatter 的 zoloz/zoloz.md
+        let missing_fm = v["frontmatter_missing"].as_array().unwrap();
+        assert!(!missing_fm.is_empty(), "应检测到无 frontmatter 的文档");
+        assert_eq!(missing_fm[0], "zoloz/zoloz.md");
+        // 无 frontmatter 的文档 status 默认 pending,不在索引中
         let docs = db.all_docs_meta().unwrap();
-        let root_doc = docs.iter().find(|d| d.path == "zoloz/zoloz.md").unwrap();
-        assert!(!root_doc.has_frontmatter);
+        assert_eq!(docs.len(), 1, "只有 a.md (validated) 在索引中, zoloz.md 无 frontmatter 为 pending 不在索引");
     }
 
     // ===== cmd_stats =====
