@@ -168,9 +168,9 @@ struct UpdateArgs {
     /// 更新 frontmatter name
     #[arg(long)]
     name: Option<String>,
-    /// 更新 frontmatter tag(可多次)
-    #[arg(long = "tags", value_name = "TAG")]
-    tags: Vec<String>,
+    /// 更新 frontmatter tags(格式 [tag1,tag2,...])
+    #[arg(long)]
+    tags: Option<String>,
     /// 追加 wiki-link(需配合 --to)
     #[arg(long = "add-link")]
     add_link: bool,
@@ -338,11 +338,17 @@ fn main() {
                     }
                 },
                 Commands::Rm { doc } => write::cmd_rm(&mut db, &kb_root_abs, &doc),
-                Commands::Update(args) => write::cmd_update(
-                    &mut db, &kb_root_abs, &args.doc, args.content.as_deref(), args.append.as_deref(),
-                    args.summary.as_deref(), args.name.as_deref(), args.tags, args.add_link,
-                    args.to.as_deref(), args.relation.as_deref(),
-                ),
+                Commands::Update(args) => {
+                    let tags = args.tags.as_deref().map(parse_tags).unwrap_or(Ok(vec![]));
+                    match tags {
+                        Ok(t) => write::cmd_update(
+                            &mut db, &kb_root_abs, &args.doc, args.content.as_deref(), args.append.as_deref(),
+                            args.summary.as_deref(), args.name.as_deref(), t, args.add_link,
+                            args.to.as_deref(), args.relation.as_deref(),
+                        ),
+                        Err(e) => Err(KbError::Other(e)),
+                    }
+                },
                 Commands::Doctor => health::cmd_doctor(&mut db, &kb_root_abs),
                 Commands::Stats => health::cmd_stats(&mut db, &kb_root_abs),
                 Commands::Init(_) => unreachable!(),

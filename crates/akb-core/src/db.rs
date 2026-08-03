@@ -267,6 +267,8 @@ impl IndexDb {
             }
         }
 
+        tx.execute("DELETE FROM links WHERE target NOT IN (SELECT path FROM docs)", [])?;
+
         tx.commit()?;
         Ok(RepairStats {
             added,
@@ -279,7 +281,7 @@ impl IndexDb {
     pub fn upsert_doc(&mut self, kb_root_abs: &str, rel_path: &str) -> Result<(), KbError> {
         let tx = self.conn.transaction()?;
         Self::upsert_doc_in_tx(&tx, kb_root_abs, rel_path)?;
-        tx.execute("DELETE FROM links WHERE target NOT IN (SELECT path FROM docs)", [])?;
+        tx.execute("DELETE FROM links WHERE source = ?1 AND target NOT IN (SELECT path FROM docs)", params![rel_path])?;
         tx.commit()?;
         Ok(())
     }
@@ -781,5 +783,38 @@ mod tests {
         let mut db = IndexDb::open(&root).unwrap();
         let result = db.upsert_doc(&root, "nonexistent/doc.md");
         assert!(result.is_err(), "upsert of missing file must error, not silently succeed");
+    }
+
+    #[test]
+    fn test_repair_stale_prunes_links_to_pending() {
+        let (_dir, root) = tmp_kb();
+        write_doc(
+            &root,
+            "a.md",
+            "---\nname: a\nsummary: a\ntags: []\nstatus: validated\n---\n[[b.md]]",
+        );
+        write_doc(
+            &root,
+            "b.md",
+            "---\nname: b\nsummary: b\ntags: []\n---\nb body",
+        );
+        let mut db = IndexDb::open(&root).unwrap();
+        db.full_rebuild(&root).unwrap();
+
+        // full_rebuild 后 A→B 被 prune(B 为 pending 不在索引)
+        assert!(db.outlinks("a.md").unwrap().is_empty());
+
+        // 改变 A 的 mtime,A 仍为 validated 仍链接 B
+        write_doc(
+            &root,
+            "a.md",
+            "---\nname: a\nsummary: a\ntags: []\nstatus: validated\n---\n[[b.md]]\nupdated",
+        );
+
+        db.repair_stale(&root).unwrap();
+
+        // repair_stale 应清理指向 pending B 的 link
+        assert!(db.outlinks("a.md").unwrap().is_empty(), "repair_stale 后不应有指向 pending 的 link");
+        assert!(db.all_links().unwrap().is_empty(), "links 表应为空");
     }
 }

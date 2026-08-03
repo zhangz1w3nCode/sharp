@@ -283,7 +283,7 @@ fn test_cli_update_and_verify() {
     assert!(v["changes"].as_array().unwrap().iter().any(|c| c == "name"));
 
     // update --tags
-    let v = run_akb(kb_root, &["update", "testdomain/sub.md", "--tags", "newtag1", "--tags", "newtag2"]);
+    let v = run_akb(kb_root, &["update", "testdomain/sub.md", "--tags", "[newtag1,newtag2]"]);
     assert!(v["changes"].as_array().unwrap().iter().any(|c| c == "tags"));
 
     // update --add-link

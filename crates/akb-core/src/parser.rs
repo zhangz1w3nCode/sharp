@@ -65,7 +65,7 @@ pub struct ParsedDoc {
     pub summary: String,
     pub category: String,
     pub tags: Vec<String>,
-    /// (target, label) 列表。
+    /// (target, relation) 列表。
     pub outlinks: Vec<(String, Option<String>)>,
     /// 全文内容;with_body=false 时为空(未填充),query 等命令用它避免重读。
     pub body: String,
@@ -127,15 +127,15 @@ pub fn normalize_path(raw: &str, kb_root: &str) -> String {
     s
 }
 
-/// 从文本中提取全部 wiki-link,返回 [(target_path, label|None), ...]。
+/// 从文本中提取全部 wiki-link,返回 [(target_path, relation|None), ...]。
 ///
-/// 按 (target, label) 去重,保持首次出现顺序。
+/// 按 (target, relation) 去重,保持首次出现顺序。
 pub fn parse_wikilinks(text: &str, kb_root: &str) -> Vec<(String, Option<String>)> {
     let mut results: Vec<(String, Option<String>)> = Vec::new();
     let mut seen: HashSet<(String, Option<String>)> = HashSet::new();
     for caps in wikilink_re().captures_iter(text) {
         let raw_path = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-        let label: Option<String> = match caps.get(2) {
+        let relation: Option<String> = match caps.get(2) {
             None => None,
             Some(m) => {
                 let l = m.as_str().trim().to_string();
@@ -150,12 +150,12 @@ pub fn parse_wikilinks(text: &str, kb_root: &str) -> Vec<(String, Option<String>
         if target.is_empty() {
             continue;
         }
-        let key = (target.clone(), label.clone());
+        let key = (target.clone(), relation.clone());
         if seen.contains(&key) {
             continue;
         }
         seen.insert(key);
-        results.push((target, label));
+        results.push((target, relation));
     }
     results
 }
@@ -438,7 +438,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_wikilinks_with_label() {
+    fn test_parse_wikilinks_with_relation() {
         let text = "[[.knowledges/a.md|关系]]";
         let links = parse_wikilinks(text, ".knowledges");
         assert_eq!(links.len(), 1);

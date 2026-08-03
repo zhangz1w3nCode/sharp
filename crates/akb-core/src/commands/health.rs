@@ -10,7 +10,7 @@ use crate::error::KbError;
 use crate::graph::is_root_doc;
 use crate::graph_petgraph::KbGraph;
 use crate::index::scan_files;
-use crate::parser::parse_wikilinks;
+use crate::parser::{parse_frontmatter, parse_wikilinks};
 use crate::util::round2;
 
 /// 判断 target 路径在文件系统上是否可达(支持跨库)。
@@ -55,6 +55,27 @@ fn scan_dangling_links(kb_root_abs: &str) -> Vec<(String, String, Option<String>
     dangling
 }
 
+/// 从文件系统扫描无 frontmatter 的文档。
+/// 无 frontmatter 的文档 status 默认 pending,不在索引中,因此不能从 docs_meta 检测。
+fn scan_missing_frontmatter(kb_root_abs: &str) -> Vec<String> {
+    let files = scan_files(kb_root_abs);
+    let mut missing: Vec<String> = Vec::new();
+    for file in &files {
+        let file_abs = Path::new(kb_root_abs)
+            .join(file.replace('/', std::path::MAIN_SEPARATOR_STR));
+        let text = match std::fs::read_to_string(&file_abs) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        let (_fm, _body, has_fm) = parse_frontmatter(&text);
+        if !has_fm {
+            missing.push(file.clone());
+        }
+    }
+    missing.sort();
+    missing
+}
+
 /// kb doctor - 知识库健康检查。
 pub fn cmd_doctor(db: &mut IndexDb, kb_root_abs: &str) -> Result<Value, KbError> {
     let docs_meta = db.all_docs_meta()
@@ -71,15 +92,15 @@ pub fn cmd_doctor(db: &mut IndexDb, kb_root_abs: &str) -> Result<Value, KbError>
 
     let mut outlinks: HashMap<String, Vec<(String, Option<String>)>> = HashMap::new();
     let mut inlinks: HashMap<String, Vec<(String, Option<String>)>> = HashMap::new();
-    for (source, target, label) in &all_links {
+    for (source, target, relation) in &all_links {
         outlinks
             .entry(source.clone())
             .or_default()
-            .push((target.clone(), label.clone()));
+            .push((target.clone(), relation.clone()));
         inlinks
             .entry(target.clone())
             .or_default()
-            .push((source.clone(), label.clone()));
+            .push((source.clone(), relation.clone()));
     }
 
     // 1. 连通性
@@ -178,13 +199,8 @@ pub fn cmd_doctor(db: &mut IndexDb, kb_root_abs: &str) -> Result<Value, KbError>
         })
         .collect();
 
-    // 5. frontmatter 缺失
-    let mut missing_fm: Vec<String> = docs_meta
-        .iter()
-        .filter(|d| !d.has_frontmatter)
-        .map(|d| d.path.clone())
-        .collect();
-    missing_fm.sort();
+    // 5. frontmatter 缺失(从文件系统扫描,无 frontmatter 的文档为 pending 不在索引中)
+    let missing_fm = scan_missing_frontmatter(kb_root_abs);
 
     // 6. tag 摘要
     let mut tag_map: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -307,15 +323,15 @@ pub fn cmd_stats(db: &mut IndexDb, kb_root_abs: &str) -> Result<Value, KbError> 
     // inlinks/outlinks maps for counts
     let mut inlinks: HashMap<String, Vec<(String, Option<String>)>> = HashMap::new();
     let mut outlinks: HashMap<String, Vec<(String, Option<String>)>> = HashMap::new();
-    for (source, target, label) in &all_links {
+    for (source, target, relation) in &all_links {
         outlinks
             .entry(source.clone())
             .or_default()
-            .push((target.clone(), label.clone()));
+            .push((target.clone(), relation.clone()));
         inlinks
             .entry(target.clone())
             .or_default()
-            .push((source.clone(), label.clone()));
+            .push((source.clone(), relation.clone()));
     }
     // health_score
     let graph = KbGraph::from_index(db)
@@ -370,6 +386,8 @@ pub fn cmd_stats(db: &mut IndexDb, kb_root_abs: &str) -> Result<Value, KbError> 
         c
     };
 
+    // health_score: 启发式近似,一个 doc 可能同时属于多个类别(如 unreachable + isolated),
+    // 因此分子可能偏低。dangling_count 是链接数非文档数,与 total 不同域,仅做粗略扣减。
     let health_score = if total > 0 {
         let healthy = total.saturating_sub(unreachable_count).saturating_sub(isolated_count).saturating_sub(dangling_count);
         round2(healthy as f64 / total as f64)
@@ -565,6 +583,10 @@ mod tests {
         assert!(result.is_ok());
         let v = result.unwrap();
         assert!(v.get("command").is_none(), "core 返回值不应含 command 字段");
+        // doctor 从文件系统扫描,应检测到无 frontmatter 的 zoloz/zoloz.md
+        let missing_fm = v["frontmatter_missing"].as_array().unwrap();
+        assert!(!missing_fm.is_empty(), "应检测到无 frontmatter 的文档");
+        assert_eq!(missing_fm[0], "zoloz/zoloz.md");
         // 无 frontmatter 的文档 status 默认 pending,不在索引中
         let docs = db.all_docs_meta().unwrap();
         assert_eq!(docs.len(), 1, "只有 a.md (validated) 在索引中, zoloz.md 无 frontmatter 为 pending 不在索引");

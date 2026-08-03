@@ -646,8 +646,12 @@ pub fn cmd_review(
     // Skip when already validated: links are already in place from the prior review.
     let mut index_warnings: Vec<String> = Vec::new();
     if !already_validated {
-        let doc_with_md = if doc.ends_with(".md") { doc.clone() } else { format!("{}.md", doc) };
-        let files = scan_files(kb_root_abs);
+        let doc_with_md = doc.clone();
+        let files: Vec<String> = db.all_docs_meta()
+            .map_err(|e| KbError::Other(format!("all_docs_meta: {}", e)))?
+            .iter()
+            .map(|d| d.path.clone())
+            .collect();
         for file in &files {
             if file == &doc_with_md { continue; }
             let file_abs = abs_path(kb_root_abs, file);
@@ -852,7 +856,7 @@ mod tests {
         let parent_text = read_doc(&root, "zoloz/zoloz.md");
         assert!(parent_text.contains("|关系]]"));
 
-        // db.outlinks 返回 Some(label)
+        // db.outlinks 返回 Some(relation)
         let out = db.outlinks("zoloz/zoloz.md").unwrap();
         let found = out.iter().find(|(t, _)| t == "zoloz/sub.md");
         assert!(found.is_some());
@@ -929,7 +933,7 @@ mod tests {
         assert!(Path::new(&root).join("zoloz").join("noext.md").exists());
     }
 
-    // ===== cmd_update =====    // ===== cmd_update =====
+    // ===== cmd_update =====
 
     #[test]
     fn test_update_content() {
