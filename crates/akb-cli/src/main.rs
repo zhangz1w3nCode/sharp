@@ -375,7 +375,9 @@ fn main() {
                 Commands::Search { keyword, top, context } => {
                     search::cmd_search(&mut db, &kb_root_abs, &keyword, top, context)
                 }
-                Commands::Show { doc, summary } => search::cmd_show(&kb_root_abs, &doc, summary),
+                Commands::Show { doc, summary } => {
+                    search::cmd_show(&mut db, &kb_root_abs, &doc, summary)
+                }
                 Commands::Add(args) => {
                     match parse_tags(&args.tags) {
                         Ok(tags) => write::cmd_add(

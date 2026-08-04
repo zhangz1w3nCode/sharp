@@ -57,6 +57,17 @@ pub struct DocMeta {
     pub size_bytes: u64,
 }
 
+/// 文档记录(读命令 show 使用,来自 docs 表)。
+#[derive(Debug, Clone)]
+pub struct DocRecord {
+    pub path: String,
+    pub name: String,
+    pub summary: String,
+    pub domain: String,
+    pub has_frontmatter: bool,
+    pub body: String,
+}
+
 /// 索引状态。
 #[derive(Debug, Clone)]
 pub struct IndexStatus {
@@ -414,6 +425,43 @@ impl IndexDb {
             }
         }
         map
+    }
+
+    /// 按 path 读取单篇文档(docs 表,只含 validated)。
+    /// 返回 None 表示文档不在索引中(不存在或 pending)。
+    pub fn get_doc(&self, path: &str) -> Result<Option<DocRecord>, rusqlite::Error> {
+        self.conn
+            .query_row(
+                "SELECT path, name, summary, domain, has_frontmatter, body FROM docs WHERE path = ?1",
+                params![path],
+                |row| {
+                    Ok(DocRecord {
+                        path: row.get(0)?,
+                        name: row.get(1)?,
+                        summary: row.get(2)?,
+                        domain: row.get(3)?,
+                        has_frontmatter: row.get::<_, i64>(4)? != 0,
+                        body: row.get(5)?,
+                    })
+                },
+            )
+            .optional()
+    }
+
+    /// 按 path 读取文档全部 tags(tags 表,每行一个,排序稳定)。
+    pub fn tags_for_doc(&self, path: &str) -> Result<Vec<String>, rusqlite::Error> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT tag FROM tags WHERE doc_path = ?1 ORDER BY tag")?;
+        let rows = stmt.query_map(params![path], |row| row.get(0))?;
+        rows.collect()
+    }
+
+    /// 读取索引中全部文档 path(只含 validated,排序稳定)。
+    pub fn all_doc_paths(&self) -> Result<Vec<String>, rusqlite::Error> {
+        let mut stmt = self.conn.prepare("SELECT path FROM docs ORDER BY path")?;
+        let rows = stmt.query_map([], |row| row.get(0))?;
+        rows.collect()
     }
 
     /// FTS5 搜索 name + summary + heading + body + tags。

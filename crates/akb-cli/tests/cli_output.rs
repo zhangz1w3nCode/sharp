@@ -202,6 +202,13 @@ fn test_cli_search_and_show() {
     // 文档 status=pending,搜索过滤掉未审核文档,因此 matches 应为空
     assert!(matches.is_empty(), "pending docs should not appear in search");
 
+    // show 同样受 pending 隔离:索引中查不到 pending 文档,报错
+    let err = run_akb_err(kb_root, &["show", "testdomain/sub.md", "--summary"]);
+    assert!(err["error"].is_string(), "pending doc show should error");
+
+    // 审核后(validated)show 正常
+    validate_doc(kb_root, "testdomain/sub.md");
+
     // show --summary
     let v = run_akb(kb_root, &["show", "testdomain/sub.md", "--summary"]);
     assert_eq!(v["doc"], "testdomain/sub.md");
@@ -294,6 +301,9 @@ fn test_cli_update_and_verify() {
     ]);
     let v = run_akb(kb_root, &["update", "testdomain/sub.md", "--add-link", "--to", "testdomain/target.md", "--relation", "ref"]);
     assert!(v["changes"].as_array().unwrap().iter().any(|c| c.as_str().unwrap_or("").starts_with("add-link")));
+
+    // update 后 status 回退 pending,verify 前需审核使 show 可见
+    validate_doc(kb_root, "testdomain/sub.md");
 
     // verify all changes with show
     let v = run_akb(kb_root, &["show", "testdomain/sub.md"]);
@@ -733,8 +743,76 @@ fn test_cli_show_domain_field() {
         "create-domain", "testdomain/sub",
         "--summary", "sub", "--tags", "[]", "--content", "s",
     ]);
+    validate_doc(kb_root, "testdomain/sub/sub.md");
     let v = run_akb(kb_root, &["show", "testdomain/sub/sub.md"]);
     assert_eq!(v["frontmatter"]["domain"], "testdomain/sub");
+}
+
+#[test]
+fn test_cli_show_pending_isolated() {
+    let dir = init_temp_kb();
+    let kb_root = dir.path().to_str().unwrap();
+    // add 创建 pending 文档(未审核)
+    run_akb(kb_root, &[
+        "add", "testdomain/sub.md",
+        "--link-from", "testdomain/testdomain.md",
+        "--summary", "pending doc", "--content", "pending body", "--tags", "[]",
+    ]);
+    // pending 文档在 CLI 完全不可见:show 报 not found in index
+    let err = run_akb_err(kb_root, &["show", "testdomain/sub.md"]);
+    assert_eq!(err["error"], "testdomain/sub.md not found in index");
+    // validate 后可见
+    validate_doc(kb_root, "testdomain/sub.md");
+    let v = run_akb(kb_root, &["show", "testdomain/sub.md"]);
+    assert_eq!(v["doc"], "testdomain/sub.md");
+}
+
+#[test]
+fn test_cli_show_tags_matches_tags_table() {
+    let dir = init_temp_kb();
+    let kb_root = dir.path().to_str().unwrap();
+    // 含空格 tag:改造前 tags_text split 会丢信息,改造后读 tags 表不丢
+    run_akb(kb_root, &[
+        "add", "testdomain/sub.md",
+        "--link-from", "testdomain/testdomain.md",
+        "--summary", "sub", "--content", "body", "--tags", "[alpha,beta gamma]",
+    ]);
+    validate_doc(kb_root, "testdomain/sub.md");
+    let v = run_akb(kb_root, &["show", "testdomain/sub.md"]);
+    let tags = v["frontmatter"]["tags"].as_array().unwrap();
+    let tag_strs: Vec<&str> = tags.iter().map(|t| t.as_str().unwrap()).collect();
+    assert!(tag_strs.contains(&"alpha"), "tags 应含 alpha");
+    assert!(tag_strs.contains(&"beta gamma"), "含空格 tag 不应丢信息");
+    // 交叉验证:tags 查询结果与 show 一致
+    let vt = run_akb(kb_root, &["tags", "beta gamma"]);
+    let docs = vt["documents"].as_array().unwrap();
+    assert!(docs.iter().any(|d| d == "testdomain/sub.md"), "tags 查询应命中该文档");
+}
+
+#[test]
+fn test_cli_index_flat_excludes_pending() {
+    let dir = init_temp_kb();
+    let kb_root = dir.path().to_str().unwrap();
+    // validated 文档
+    run_akb(kb_root, &[
+        "add", "testdomain/sub.md",
+        "--link-from", "testdomain/testdomain.md",
+        "--summary", "sub", "--content", "body", "--tags", "[]",
+    ]);
+    validate_doc(kb_root, "testdomain/sub.md");
+    // pending 文档(不 validate)
+    run_akb(kb_root, &[
+        "add", "testdomain/pending2.md",
+        "--link-from", "testdomain/testdomain.md",
+        "--summary", "p", "--content", "p", "--tags", "[]",
+    ]);
+    let v = run_akb(kb_root, &["index", "--flat"]);
+    let docs = v["documents"].as_array().unwrap();
+    assert!(docs.iter().any(|d| d == "testdomain/sub.md"), "应含 validated 文档");
+    assert!(!docs.iter().any(|d| d == "testdomain/pending2.md"), "不应含 pending 文档");
+    // 交叉验证:索引 DB 与 CLI 输出一致
+    let vs = run_akb(kb_root, &["index", "--status"]);
+    assert_eq!(vs["status"]["indexed_count"], docs.len(), "indexed_count 应与 --flat 一致");
 }
 
 #[test]

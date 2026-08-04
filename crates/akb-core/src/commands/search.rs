@@ -1,6 +1,6 @@
 //! commands/search.rs - 查询类子命令:index/links/traverse/tags/search/show。
 //!
-//! 读命令只读索引(写命令已实时单点增量更新);index --tree/--flat 扫文件系统。
+//! 读命令只读索引(写命令已实时单点增量更新);show 与 index --tree/--flat 均读索引,
 
 use std::path::Path;
 use walkdir::WalkDir;
@@ -13,7 +13,6 @@ use crate::util::round2;
 use crate::graph::norm_doc_arg;
 use crate::graph_petgraph::KbGraph;
 use crate::index::{scan_files, tree_to_value};
-use crate::parser::parse_frontmatter;
 
 /// 批量序列化 Serialize 切片为 Vec<Value>，失败转 KbError（保留 serde 错误上下文）。
 ///
@@ -28,9 +27,9 @@ fn to_values<T: serde::Serialize>(items: &[T]) -> Result<Vec<Value>, KbError> {
         .map_err(|e| KbError::Other(format!("serialize traverse paths: {e}")))
 }
 
-/// kb index --tree | --flat(文件系统扫描,不依赖索引)。
-pub fn cmd_index(_db: &mut IndexDb, kb_root_abs: &str, flat: bool) -> Result<Value, KbError> {
-    let files = scan_files(kb_root_abs);
+/// kb index --tree | --flat(读索引,只含 validated)。
+pub fn cmd_index(db: &mut IndexDb, _kb_root_abs: &str, flat: bool) -> Result<Value, KbError> {
+    let files = db.all_doc_paths().map_err(KbError::Sqlite)?;
     if flat {
         Ok(json!({
             "total": files.len(),
@@ -266,34 +265,38 @@ fn build_contexts(body: &str, kw_lower: &str, context_lines: usize, max_matches:
 }
 
 /// kb show <doc> [--summary]
-pub fn cmd_show(kb_root_abs: &str, doc: &str, summary_only: bool) -> Result<Value, KbError> {
+pub fn cmd_show(
+    db: &mut IndexDb,
+    _kb_root_abs: &str,
+    doc: &str,
+    summary_only: bool,
+) -> Result<Value, KbError> {
     let doc = norm_doc_arg(doc, ".knowledges");
     if doc.is_empty() {
         return Err(KbError::Other("invalid document path".into()));
     }
-    let abs = Path::new(kb_root_abs).join(doc.replace('/', std::path::MAIN_SEPARATOR_STR));
-    let text = std::fs::read_to_string(&abs)
-        .map_err(|_| KbError::Other(format!("{} not found in knowledge base", doc)))?;
-    let (fm, body, has_fm) = parse_frontmatter(&text);
-    // domain 从文档路径推导,与索引保持一致
-    let domain = doc.rsplit_once('/').map(|(d, _)| d.to_string()).unwrap_or_default();
+    let rec = db
+        .get_doc(&doc)
+        .map_err(KbError::Sqlite)?
+        .ok_or_else(|| KbError::Other(format!("{} not found in index", doc)))?;
     if summary_only {
         return Ok(json!({
             "doc": doc,
-            "summary": fm.summary,
-            "name": fm.name,
+            "summary": rec.summary,
+            "name": rec.name,
         }));
     }
+    let tags = db.tags_for_doc(&doc).map_err(KbError::Sqlite)?;
     Ok(json!({
         "doc": doc,
-        "has_frontmatter": has_fm,
+        "has_frontmatter": rec.has_frontmatter,
         "frontmatter": {
-            "name": fm.name,
-            "summary": fm.summary,
-            "domain": domain,
-            "tags": fm.tags,
+            "name": rec.name,
+            "summary": rec.summary,
+            "domain": rec.domain,
+            "tags": tags,
         },
-        "body": body,
+        "body": rec.body,
     }))
 }
 
@@ -410,9 +413,7 @@ pub fn cmd_trashbox_list(kb_root_abs: &str) -> Result<Value, KbError> {
 mod tests {
     use super::*;
     use crate::graph_petgraph::KbGraph;
-    use crate::index::scan_files;
     use std::io::Write;
-
     fn write_doc(root: &str, rel: &str, content: &str) {
         let abs = Path::new(root).join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
         if let Some(parent) = abs.parent() {
@@ -472,8 +473,8 @@ mod tests {
         let (_dir, root, mut db) = setup_ab_chain();
         let result = cmd_index(&mut db, &root, false);
         assert!(result.is_ok());
-        // 交叉调 scan_files 验证数量一致
-        let files = scan_files(&root);
+        // 交叉调 db.all_doc_paths 验证数量一致
+        let files = db.all_doc_paths().unwrap();
         assert_eq!(files.len(), 2);
     }
 
@@ -482,7 +483,7 @@ mod tests {
         let (_dir, root, mut db) = setup_ab_chain();
         let result = cmd_index(&mut db, &root, true);
         assert!(result.is_ok());
-        let files = scan_files(&root);
+        let files = db.all_doc_paths().unwrap();
         assert_eq!(files.len(), 2);
     }
 
@@ -613,7 +614,6 @@ mod tests {
         // match 段必含关键词
         assert!(ctxs[0]["match"].as_str().unwrap().contains("keyword"));
     }
-
     #[test]
     fn test_search_top_limit() {
         let (_dir, root, mut db) = setup_ab_chain();
@@ -639,35 +639,58 @@ mod tests {
 
     #[test]
     fn test_show_full() {
-        let (_dir, root, _db) = setup_ab_chain();
-        let result = cmd_show(&root, "zoloz/a.md", false);
+        let (_dir, root, mut db) = setup_ab_chain();
+        let result = cmd_show(&mut db, &root, "zoloz/a.md", false);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_show_summary() {
-        let (_dir, root, _db) = setup_ab_chain();
-        let result = cmd_show(&root, "zoloz/a.md", true);
+        let (_dir, root, mut db) = setup_ab_chain();
+        let result = cmd_show(&mut db, &root, "zoloz/a.md", true);
         assert!(result.is_ok());
     }
 
     #[test]
+    fn test_show_domain_field() {
+        let (_dir, root, mut db) = setup_ab_chain();
+        let result = cmd_show(&mut db, &root, "zoloz/a.md", false);
+        let v = result.unwrap();
+        // domain 从路径推导 = zoloz(父目录)
+        assert_eq!(v["frontmatter"]["domain"], "zoloz");
+        // frontmatter 仅含已知字段,无多余分类字段
+        let keys = v["frontmatter"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        assert!(keys.contains(&"domain".to_string()));
+    }
+
+    #[test]
     fn test_show_not_found_error() {
-        let (_dir, root, _db) = setup_ab_chain();
-        let result = cmd_show(&root, "zoloz/nonexistent.md", false);
-        assert!(result.is_err());
+        let (_dir, root, mut db) = setup_ab_chain();
+        let result = cmd_show(&mut db, &root, "zoloz/nonexistent.md", false);
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("not found in index"),
+            "错误消息应含 not found in index,实际: {}",
+            err
+        );
     }
 
     #[test]
     fn test_show_top_level_doc_domain_empty() {
-        let (_dir, root, _db) = setup_ab_chain();
-        // 顶层文档(无斜杠),domain 从路径推导为空
+        let (_dir, root, mut db) = setup_ab_chain();
+        // 顶层文档(无斜杠),domain 从路径推导为空;先 upsert 进索引再 show
         write_doc(
             &root,
             "top.md",
             "---\nname: top\nsummary: s\ntags: []\nstatus: validated\n---\nbody",
         );
-        let result = cmd_show(&root, "top.md", false);
+        db.upsert_doc(&root, "top.md").unwrap();
+        let result = cmd_show(&mut db, &root, "top.md", false);
         let v = result.unwrap();
         assert_eq!(v["frontmatter"]["domain"], "");
     }
@@ -690,7 +713,6 @@ mod tests {
         assert!(list.iter().any(|d| d == "zoloz"));
         assert_eq!(v["total"], 2);
     }
-
     #[test]
     fn test_domains_sub_domains() {
         let (_dir, root, mut db) = setup_ab_chain();
@@ -698,6 +720,74 @@ mod tests {
         let v = cmd_domains(&mut db, &root, Some("zoloz")).unwrap();
         let subs = v["sub_domains"].as_array().unwrap();
         assert_eq!(subs.len(), 0);
+    }
+
+    #[test]
+    fn test_show_pending_not_in_index() {
+        let (_dir, root, mut db) = setup_ab_chain();
+        // pending 文档:文件存在但索引隔离(刻意设计),show 应报错
+        write_doc(
+            &root,
+            "zoloz/pending.md",
+            "---\nname: pending\nsummary: s\ntags: []\nstatus: pending\n---\nbody",
+        );
+        db.upsert_doc(&root, "zoloz/pending.md").unwrap();
+        let result = cmd_show(&mut db, &root, "zoloz/pending.md", false);
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("not found in index"),
+            "pending 文档应报 not found in index,实际: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_show_tags_from_tags_table() {
+        let (_dir, root, mut db) = setup_ab_chain();
+        // 多 tag 文档,show 返回的 tags 应与 tags 表一致(非 tags_text split)
+        write_doc(
+            &root,
+            "zoloz/multi.md",
+            "---\nname: multi\nsummary: s\ntags: [alpha, beta gamma]\nstatus: validated\n---\nbody",
+        );
+        db.upsert_doc(&root, "zoloz/multi.md").unwrap();
+        let v = cmd_show(&mut db, &root, "zoloz/multi.md", false).unwrap();
+        let tags = v["frontmatter"]["tags"].as_array().unwrap();
+        let db_tags = db.tags_for_doc("zoloz/multi.md").unwrap();
+        let tags_vec: Vec<&str> = tags.iter().map(|t| t.as_str().unwrap()).collect();
+        assert_eq!(
+            tags_vec.len(),
+            db_tags.len(),
+            "show tags 与 tags 表条目数一致"
+        );
+        for t in &db_tags {
+            assert!(
+                tags_vec.contains(&t.as_str()),
+                "tags 表条目 {} 应出现在 show 输出",
+                t
+            );
+        }
+    }
+
+    #[test]
+    fn test_index_flat_excludes_pending() {
+        let (_dir, root, mut db) = setup_ab_chain();
+        // pending 文档:index --flat 不应列出
+        write_doc(
+            &root,
+            "zoloz/pending2.md",
+            "---\nname: pending2\nsummary: s\ntags: []\nstatus: pending\n---\nbody",
+        );
+        db.upsert_doc(&root, "zoloz/pending2.md").unwrap();
+        let v = cmd_index(&mut db, &root, true).unwrap();
+        let docs = v["documents"].as_array().unwrap();
+        assert!(
+            !docs
+                .iter()
+                .any(|d| d.as_str().unwrap() == "zoloz/pending2.md"),
+            "index --flat 不应包含 pending 文档"
+        );
+        assert_eq!(v["total"], 2, "只含 validated 文档");
     }
 
     #[test]
@@ -716,17 +806,6 @@ mod tests {
         assert_eq!(v["total"], 1);
     }
 
-    #[test]
-    fn test_show_domain_field() {
-        let (_dir, root, _db) = setup_ab_chain();
-        let result = cmd_show(&root, "zoloz/a.md", false);
-        let v = result.unwrap();
-        // domain 从路径推导 = zoloz(父目录)
-        assert_eq!(v["frontmatter"]["domain"], "zoloz");
-        // frontmatter 仅含已知字段,无多余分类字段
-        let keys = v["frontmatter"].as_object().unwrap().keys().cloned().collect::<Vec<_>>();
-        assert!(keys.contains(&"domain".to_string()));
-    }
 
     #[test]
     fn test_trashbox_list() {
