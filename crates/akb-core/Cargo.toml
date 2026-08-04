@@ -3,6 +3,9 @@ name = "akb-core"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [lib]
 name = "akb_core"
 path = "src/lib.rs"
