@@ -11,5 +11,36 @@ default-members = ["crates/akb-core", "crates/akb-cli"]
 version = "0.2.0"
 edition = "2021"
 
+[workspace.lints.clippy]
+# --- 不要 panic ---
+string_slice = "warn"
+indexing_slicing = "warn"
+unwrap_used = "warn"
+panic = "warn"
+todo = "warn"
+unimplemented = "warn"
+unreachable = "warn"
+get_unwrap = "warn"
+unwrap_in_result = "warn"
+panic_in_result_fn = "warn"
+
+# --- 不要静默失败 ---
+let_underscore_future = "warn"
+let_underscore_must_use = "warn"
+unused_result_ok = "warn"
+map_err_ignore = "warn"
+
+# --- 异步/并发 ---
+await_holding_lock = "warn"
+await_holding_refcell_ref = "warn"
+large_futures = "warn"
+
+# --- 数值安全 ---
+float_cmp = "warn"
+cast_sign_loss = "warn"
+
+# --- 杂项 ---
+dbg_macro = "warn"
+
 [profile.release]
 opt-level = 3
