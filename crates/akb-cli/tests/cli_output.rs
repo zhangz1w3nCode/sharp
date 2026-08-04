@@ -324,7 +324,8 @@ fn test_cli_rm_behavior() {
 
     // rm
     let v = run_akb(kb_root, &["rm", "testdomain/sub.md"]);
-    assert_eq!(v["deleted"], false, "rm should not delete file");
+    assert_eq!(v["deleted"], true, "rm should delete file by moving to trash-box");
+    assert_eq!(v["trash_path"], ".trash-box/testdomain/sub.md");
     assert_eq!(v["doc"], "testdomain/sub.md");
     assert!(v["inlinks"].is_array(), "rm should report inlinks");
 
@@ -333,15 +334,79 @@ fn test_cli_rm_behavior() {
     let after_count = after["total_documents"].as_u64().unwrap_or(0);
     assert!(after_count < before_count, "index count should decrease after rm");
 
-    // file still exists on disk
+    // file moved into .trash-box, no longer in normal directory
     let file_path = std::path::Path::new(kb_root).join("testdomain/sub.md");
-    assert!(file_path.exists(), "file should still exist on disk");
+    let trash_path = std::path::Path::new(kb_root).join(".trash-box/testdomain/sub.md");
+    assert!(!file_path.exists(), "file should be moved out of normal directory");
+    assert!(trash_path.exists(), "file should exist under .trash-box");
 
-    // index --build restores it
+    // INDEX.md 树不再包含已删文档
+    let index_content = std::fs::read_to_string(format!("{}/INDEX.md", kb_root)).unwrap();
+    assert!(!index_content.contains("sub.md"), "INDEX.md tree should not list removed doc");
+
+    // index --build does NOT restore it (regression: 9->8->9 fixed to 9->8->8)
     run_akb(kb_root, &["index", "--build"]);
     let rebuilt = run_akb(kb_root, &["stats"]);
     let rebuilt_count = rebuilt["total_documents"].as_u64().unwrap_or(0);
-    assert_eq!(rebuilt_count, before_count, "build should restore index to full count");
+    assert_eq!(rebuilt_count, after_count, "build should NOT restore trashed doc to index");
+}
+
+#[test]
+fn test_cli_rejects_trash_box_paths() {
+    let dir = init_temp_kb();
+    let kb_root = dir.path().to_str().unwrap();
+    run_akb(kb_root, &[
+        "add", "testdomain/sub.md",
+        "--link-from", "testdomain/testdomain.md",
+        "--summary", "sub", "--content", "sub body", "--tags", "[]",
+    ]);
+    validate_doc(kb_root, "testdomain/sub.md");
+    run_akb(kb_root, &["rm", "testdomain/sub.md"]);
+
+    // .trash-box 是回收站保留目录:show/update 显式访问必须被拒绝(完整隔离)
+    let v = run_akb_err(kb_root, &["show", ".trash-box/testdomain/sub.md"]);
+    assert!(v["error"].is_string(), "show should reject .trash-box path");
+    let v = run_akb_err(kb_root, &["update", ".trash-box/testdomain/sub.md", "--content", "x"]);
+    assert!(v["error"].is_string(), "update should reject .trash-box path");
+}
+
+#[test]
+fn test_cli_trashbox_list_and_restore() {
+    let dir = init_temp_kb();
+    let kb_root = dir.path().to_str().unwrap();
+    run_akb(kb_root, &[
+        "add", "testdomain/sub.md",
+        "--link-from", "testdomain/testdomain.md",
+        "--summary", "sub", "--content", "sub body", "--tags", "[]",
+    ]);
+    validate_doc(kb_root, "testdomain/sub.md");
+
+    // rm 后:回收站 list 能看到,root 指向 sub 的链接断链
+    run_akb(kb_root, &["rm", "testdomain/sub.md"]);
+    let list = run_akb(kb_root, &["trashbox", "list"]);
+    assert_eq!(list["count"], 1);
+    assert_eq!(list["files"][0]["doc"], "testdomain/sub.md");
+    let doctor = run_akb(kb_root, &["doctor"]);
+    let dangling = doctor["dangling_links"].as_array().unwrap();
+    assert!(dangling.iter().any(|l| l["target"] == "testdomain/sub.md"), "rm 后应报断链");
+
+    // restore 后:文件回原位置,索引与链接复原,断链消失
+    let v = run_akb(kb_root, &["trashbox", "restore", "testdomain/sub.md"]);
+    assert_eq!(v["restored"], true);
+    assert_eq!(v["indexed"], true);
+    assert!(std::path::Path::new(kb_root).join("testdomain/sub.md").exists());
+    let list = run_akb(kb_root, &["trashbox", "list"]);
+    assert_eq!(list["count"], 0);
+    // 链接复原:root 指向 sub 的 outlink 恢复
+    let links = run_akb(kb_root, &["links", "--from", "testdomain/testdomain.md"]);
+    assert!(links["related"].as_array().unwrap().iter().any(|l| l["doc"] == "testdomain/sub.md"), "restore 后 root 指向 sub 的链接应复原");
+    // 断链消失:doctor 不再报告 dangling
+    let doctor = run_akb(kb_root, &["doctor"]);
+    let dangling = doctor["dangling_links"].as_array().unwrap();
+    assert!(!dangling.iter().any(|l| l["target"] == "testdomain/sub.md"), "restore 后断链应消失");
+    // 搜索恢复命中
+    let search = run_akb(kb_root, &["search", "sub body"]);
+    assert!(search["matches"].as_array().unwrap().iter().any(|r| r["doc"] == "testdomain/sub.md"), "restore 后搜索应恢复命中");
 }
 
 #[test]

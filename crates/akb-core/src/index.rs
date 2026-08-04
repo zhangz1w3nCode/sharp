@@ -5,12 +5,12 @@ use std::path::Path;
 
 use walkdir::WalkDir;
 
-/// 跳过的目录名(版本控制/工具目录)。
-const SKIP_DIRS: &[&str] = &[".git", ".claude", ".svn", ".hg"];
+/// 跳过的目录名(版本控制/工具/回收站目录)。
+const SKIP_DIRS: &[&str] = &[".git", ".claude", ".svn", ".hg", ".trash-box"];
 
 /// 扫描 kb_root_abs 下所有 .md 文件,返回相对路径列表(已排序)。
 ///
-/// 跳过 .git/.claude/.svn/.hg 目录;跳过 INDEX.md 自身。
+/// 跳过 .git/.claude/.svn/.hg/.trash-box 目录;跳过 INDEX.md 自身。
 pub fn scan_files(kb_root_abs: &str) -> Vec<String> {
     let root = Path::new(kb_root_abs);
     let mut files: Vec<String> = Vec::new();
@@ -205,6 +205,21 @@ mod tests {
         assert!(!files.iter().any(|f| f.contains(".claude")));
         assert!(!files.contains(&"notmd.txt".to_string()));
         assert_eq!(files.len(), 2);
+    }
+
+    #[test]
+    fn test_scan_files_skips_trash_box() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().to_string();
+        write_doc(&root, "zoloz/a.md", "body");
+        write_doc(&root, ".trash-box/zoloz/b.md", "trashed");
+        write_doc(&root, ".trash-box/root.md", "trashed");
+
+        let files = scan_files(&root);
+        // 正常文档被扫描,.trash-box 下文件被排除
+        assert!(files.contains(&"zoloz/a.md".to_string()));
+        assert!(!files.iter().any(|f| f.starts_with(".trash-box/")));
+        assert_eq!(files.len(), 1);
     }
 
     #[test]

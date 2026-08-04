@@ -3,6 +3,7 @@
 //! 读命令只读索引(写命令已实时单点增量更新);index --tree/--flat 扫文件系统。
 
 use std::path::Path;
+use walkdir::WalkDir;
 
 use serde_json::{json, Value};
 
@@ -267,6 +268,9 @@ fn build_contexts(body: &str, kw_lower: &str, context_lines: usize, max_matches:
 /// kb show <doc> [--summary]
 pub fn cmd_show(kb_root_abs: &str, doc: &str, summary_only: bool) -> Result<Value, KbError> {
     let doc = norm_doc_arg(doc, ".knowledges");
+    if doc.is_empty() {
+        return Err(KbError::Other("invalid document path".into()));
+    }
     let abs = Path::new(kb_root_abs).join(doc.replace('/', std::path::MAIN_SEPARATOR_STR));
     let text = std::fs::read_to_string(&abs)
         .map_err(|_| KbError::Other(format!("{} not found in knowledge base", doc)))?;
@@ -334,6 +338,72 @@ pub fn cmd_domains(_db: &mut IndexDb, kb_root_abs: &str, domain: Option<&str>) -
             }))
         }
     }
+}
+
+/// kb trashbox list - 列出回收站(.trash-box)中所有文件。
+pub fn cmd_trashbox_list(kb_root_abs: &str) -> Result<Value, KbError> {
+    let trash_root = Path::new(kb_root_abs).join(".trash-box");
+    let mut files: Vec<Value> = Vec::new();
+    if trash_root.is_dir() {
+        for entry in WalkDir::new(&trash_root)
+            .into_iter()
+            .filter_entry(|e| {
+                // 防御:嵌套的 .trash-box 目录不再递归
+                if e.file_type().is_dir() && e.depth() > 0 {
+                    if let Some(name) = e.file_name().to_str() {
+                        if name == ".trash-box" {
+                            return false;
+                        }
+                    }
+                }
+                true
+            })
+        {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let ext = entry
+                .path()
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("");
+            if ext != "md" {
+                continue;
+            }
+            let rel = match entry.path().strip_prefix(&trash_root) {
+                Ok(r) => r.to_string_lossy().replace('\\', "/").to_string(),
+                Err(_) => continue,
+            };
+            let meta = entry.metadata().ok();
+            let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+            let mtime = meta
+                .as_ref()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            files.push(json!({
+                "doc": rel,
+                "size": size,
+                "mtime": mtime,
+            }));
+        }
+    }
+    files.sort_by(|a, b| {
+        a["doc"]
+            .as_str()
+            .unwrap_or("")
+            .cmp(b["doc"].as_str().unwrap_or(""))
+    });
+    Ok(json!({
+        "trash_box": ".trash-box",
+        "count": files.len(),
+        "files": files,
+    }))
 }
 
 #[cfg(test)]
@@ -656,5 +726,22 @@ mod tests {
         // frontmatter 仅含已知字段,无多余分类字段
         let keys = v["frontmatter"].as_object().unwrap().keys().cloned().collect::<Vec<_>>();
         assert!(keys.contains(&"domain".to_string()));
+    }
+
+    #[test]
+    fn test_trashbox_list() {
+        let (_dir, root, _db) = setup_ab_chain();
+        // 初始为空
+        let v = cmd_trashbox_list(&root).unwrap();
+        assert_eq!(v["count"], 0);
+        // 预置回收站文件(模拟 rm 移入)
+        write_doc(&root, ".trash-box/zoloz/a.md", "---\nname: a\nsummary: a\nstatus: validated\n---\nbody\n");
+        write_doc(&root, ".trash-box/zoloz/pay/b.md", "---\nname: b\nsummary: b\nstatus: validated\n---\nbody\n");
+        let v = cmd_trashbox_list(&root).unwrap();
+        assert_eq!(v["count"], 2);
+        let docs: Vec<String> = v["files"].as_array().unwrap().iter().map(|f| f["doc"].as_str().unwrap().to_string()).collect();
+        // 返回相对 .trash-box 的原路径,已排序
+        assert_eq!(docs, vec!["zoloz/a.md", "zoloz/pay/b.md"]);
+        assert!(v["files"][0]["size"].is_u64() || v["files"][0]["size"].is_number());
     }
 }

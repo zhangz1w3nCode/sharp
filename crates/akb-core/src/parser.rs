@@ -128,6 +128,10 @@ pub fn normalize_path(raw: &str, kb_root: &str) -> String {
     if s.split('/').any(|seg| seg == ".." || seg == ".") {
         return String::new();
     }
+    // 拒绝 .trash-box 回收站前缀:回收站文件不参与任何正常操作(完整隔离)
+    if s == ".trash-box" || s.starts_with(".trash-box/") {
+        return String::new();
+    }
     s
 }
 
@@ -536,6 +540,10 @@ mod tests {
         assert_eq!(normalize_path("a.md", ".knowledges"), "a.md");
         // 反斜杠归一
         assert_eq!(normalize_path(".knowledges\\sub\\a.md", ".knowledges"), "sub/a.md");
+        // .trash-box 回收站前缀拒绝(完整隔离)
+        assert_eq!(normalize_path(".trash-box/a.md", ".knowledges"), "");
+        assert_eq!(normalize_path(".knowledges/.trash-box/a.md", ".knowledges"), "");
+        assert_eq!(normalize_path(".trash-box", ".knowledges"), "");
     }
 
     #[test]

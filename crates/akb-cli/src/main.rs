@@ -78,7 +78,7 @@ enum Commands {
     },
     /// 创建新文档 + 在父文档建立带关系 wiki-link
     Add(AddArgs),
-    /// 删除影响报告(只报告,不删文件)
+    /// 删除文档(从索引移除并物理移入 .trash-box)
     Rm {
         /// 文档路径
         doc: String,
@@ -103,6 +103,8 @@ enum Commands {
         /// 新领域路径
         new: String,
     },
+    /// 回收站管理:列出/恢复已删除文档
+    Trashbox(TrashboxArgs),
     /// 知识库精简概览(文档数/tag/domains/health_score/last_modified)
     Stats,
 }
@@ -120,6 +122,23 @@ struct CreateDomainArgs {
     /// 根文档正文内容
     #[arg(long)]
     content: String,
+}
+
+#[derive(clap::Args)]
+struct TrashboxArgs {
+    #[command(subcommand)]
+    command: TrashboxCmd,
+}
+
+#[derive(clap::Subcommand)]
+enum TrashboxCmd {
+    /// 列出回收站(.trash-box)中所有文件
+    List,
+    /// 把指定文档恢复到原位置(从 .trash-box 移回并重建索引)
+    Restore {
+        /// 原文档相对路径(如 zoloz/a.md)
+        doc: String,
+    },
 }
 
 #[derive(clap::Args)]
@@ -383,6 +402,10 @@ fn main() {
                 Commands::Stats => health::cmd_stats(&mut db, &kb_root_abs),
                 Commands::Domains { domain } => search::cmd_domains(&mut db, &kb_root_abs, domain.as_deref()),
                 Commands::RenameDomain { old, new } => write::cmd_rename_domain(&mut db, &kb_root_abs, &old, &new),
+                Commands::Trashbox(args) => match args.command {
+                    TrashboxCmd::List => search::cmd_trashbox_list(&kb_root_abs),
+                    TrashboxCmd::Restore { doc } => write::cmd_trashbox_restore(&mut db, &kb_root_abs, &doc),
+                },
                 Commands::Init(_) => unreachable!(),
                 Commands::CreateDomain(_) => unreachable!(),
             }
