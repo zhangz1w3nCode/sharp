@@ -177,6 +177,9 @@ pub fn cmd_init(
     if domain.contains('/') {
         return Err(KbError::Other("init only supports top-level domain (use 'akb create domain' for nested)".into()));
     }
+    if domain == ".trash-box" {
+        return Err(KbError::Other(".trash-box is reserved for deleted docs".into()));
+    }
     let mut created: Vec<String> = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
     // .knowledges/ 根目录
@@ -274,6 +277,9 @@ pub fn cmd_create_domain(
     }
     if domain_path.split('/').any(|seg| seg == ".." || seg == "." || seg.is_empty()) {
         return Err(KbError::Other("invalid domain path".into()));
+    }
+    if domain_path == ".trash-box" || domain_path.starts_with(".trash-box/") {
+        return Err(KbError::Other("invalid domain path: .trash-box is reserved for deleted docs".into()));
     }
     if summary.is_empty() {
         return Err(KbError::Other("summary is required (use --summary)".into()));
@@ -527,7 +533,7 @@ pub fn cmd_add(
     }))
 }
 
-/// kb rm <doc> - 只报告影响,不删文件;从索引中移除。
+/// kb rm <doc> - 从索引移除并物理移入 .trash-box 隔离。
 pub fn cmd_rm(db: &mut IndexDb, kb_root_abs: &str, doc: &str) -> Result<Value, KbError> {
     let doc = norm_doc_arg(doc, ".knowledges");
     if doc.is_empty() {
@@ -614,20 +620,131 @@ pub fn cmd_rm(db: &mut IndexDb, kb_root_abs: &str, doc: &str) -> Result<Value, K
         }
     }
 
-    // 从索引中移除(文件系统保留)
+    // 物理移入 .trash-box(先移动文件,再移除索引:
+    // 移动失败则索引/文件均不变;索引移除失败可由 index --status 按 missing 自愈)
+    let trash_abs = Path::new(kb_root_abs)
+        .join(".trash-box")
+        .join(doc.replace('/', std::path::MAIN_SEPARATOR_STR));
+    if trash_abs.exists() {
+        return Err(KbError::Other(format!(
+            "trash file already exists: {} (请先处理 .trash-box 中的旧文件再重试)",
+            trash_abs.display()
+        )));
+    }
+    if let Some(parent) = trash_abs.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::rename(&abs, &trash_abs).map_err(|e| {
+        KbError::Other(format!("move to trash failed: {} (索引未变更,可重试)", e))
+    })?;
+
+    // 从索引中移除
     if let Err(e) = db.remove_doc(&doc) {
-        return Err(KbError::Other(format!("remove from index failed: {}", e)));
+        return Err(KbError::Other(format!(
+            "remove from index failed: {} (文件已移入 .trash-box,可运行 index --status 自愈)",
+            e
+        )));
+    }
+    // 重建 INDEX.md 树形索引(不含 .trash-box,树中移除已删文档)
+    let (_total, idx_err) = rebuild_index_md(kb_root_abs);
+    let mut warnings: Vec<String> = Vec::new();
+    if let Some(e) = idx_err {
+        warnings.push(format!("INDEX.md rebuild failed: {}", e));
     }
 
     Ok(json!({
         "doc": doc,
         "abs_path": abs.to_string_lossy(),
-        "deleted": false,
+        "deleted": true,
+        "trash_path": format!(".trash-box/{}", doc),
         "inlinks": inlinks_data,
         "outlinks": outlinks_data,
         "orphan_risk": orphan_risk,
         "reachability": reachability,
-        "hint": format!("文档保留在磁盘,仅从索引移除。如需物理删除请手动 rm {} (inlinks 字段列出指向本文档的引用)", abs.display()),
+        "warnings": warnings,
+        "hint": format!(
+            "文档已移入 .trash-box 并从索引移除。如需恢复请运行: akb trashbox restore {} (inlinks 字段列出指向本文档的引用)",
+            doc
+        ),
+    }))
+}
+
+/// kb trashbox restore <doc> - 把回收站文件恢复到原位置并重建索引。
+pub fn cmd_trashbox_restore(
+    db: &mut IndexDb,
+    kb_root_abs: &str,
+    doc: &str,
+) -> Result<Value, KbError> {
+    let doc = norm_doc_arg(doc, ".knowledges");
+    if doc.is_empty() {
+        return Err(KbError::Other("invalid document path".into()));
+    }
+    let trash_abs = Path::new(kb_root_abs)
+        .join(".trash-box")
+        .join(doc.replace('/', std::path::MAIN_SEPARATOR_STR));
+    if !trash_abs.exists() {
+        return Err(KbError::Other(format!("trash file not found: {}", doc)));
+    }
+    let abs = abs_path(kb_root_abs, &doc);
+    if abs.exists() {
+        return Err(KbError::Other(format!(
+            "target already exists: {} (请先处理原路径文件再重试)",
+            doc
+        )));
+    }
+    if let Some(parent) = abs.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::rename(&trash_abs, &abs)
+        .map_err(|e| KbError::Other(format!("restore failed: {}", e)))?;
+    // 清理 .trash-box 下移动后留下的空父目录
+    let trash_root = Path::new(kb_root_abs).join(".trash-box");
+    if let Some(trash_parent) = trash_abs.parent() {
+        let mut cur = trash_parent.to_path_buf();
+        while cur.starts_with(&trash_root) && cur != trash_root {
+            if std::fs::remove_dir(&cur).is_err() {
+                break;
+            }
+            cur = match cur.parent() {
+                Some(p) => p.to_path_buf(),
+                None => break,
+            };
+        }
+    }
+    // 恢复索引:仅当 frontmatter status == validated 时重建索引
+    // (full_rebuild 复原 rm 时被双向清理的链接:其他文档指向本文档的入链也会恢复;
+    //  重建失败不阻塞恢复结果,文件已回原位置,可运行 index --status 自愈)
+    let mut warnings: Vec<String> = Vec::new();
+    let indexed = {
+        let text = std::fs::read_to_string(&abs)?;
+        let (fm, _body, _has_fm) = parse_frontmatter(&text);
+        if fm.status == "validated" {
+            match db.full_rebuild(kb_root_abs) {
+                Ok(_) => true,
+                Err(e) => {
+                    warnings.push(format!("index rebuild failed: {} (可运行 index --status 自愈)", e));
+                    false
+                }
+            }
+        } else {
+            false
+        }
+    };
+    let (_total, idx_err) = rebuild_index_md(kb_root_abs);
+    if let Some(e) = idx_err {
+        warnings.push(format!("INDEX.md rebuild failed: {}", e));
+    }
+    Ok(json!({
+        "doc": doc,
+        "abs_path": abs.to_string_lossy(),
+        "restored": true,
+        "indexed": indexed,
+        "warnings": warnings,
+        "hint": if indexed {
+            "文档已恢复到原位置,索引与链接已全部复原".to_string()
+        } else {
+            "文档已恢复到原位置,索引未复原(可运行 index --status 或 review 审核)".to_string()
+        },
     }))
 }
 
@@ -841,11 +958,17 @@ pub fn cmd_rename_domain(
     if old.split('/').any(|seg| seg == ".." || seg == "." || seg.is_empty()) {
         return Err(KbError::Other("invalid old domain path".into()));
     }
+    if old == ".trash-box" || old.starts_with(".trash-box/") {
+        return Err(KbError::Other("invalid old domain path: .trash-box is reserved for deleted docs".into()));
+    }
     if new.is_empty() {
         return Err(KbError::Other("new domain name is empty".into()));
     }
     if new.split('/').any(|seg| seg == ".." || seg == "." || seg.is_empty()) {
         return Err(KbError::Other("invalid new domain path".into()));
+    }
+    if new == ".trash-box" || new.starts_with(".trash-box/") {
+        return Err(KbError::Other("invalid new domain path: .trash-box is reserved for deleted docs".into()));
     }
     let old_dir = abs_path(kb_root_abs, &old);
     if !old_dir.is_dir() {
@@ -1450,7 +1573,7 @@ mod tests {
     // ===== cmd_rm =====
 
     #[test]
-    fn test_rm_reports_and_keeps_file() {
+    fn test_rm_moves_file_to_trash_box() {
         let (_dir, root, mut db) = setup_kb_with_docs();
         cmd_add(
             &mut db,
@@ -1463,12 +1586,14 @@ mod tests {
         ).unwrap();
         cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
         let doc_abs = Path::new(&root).join("zoloz").join("a.md");
+        let trash_abs = Path::new(&root).join(".trash-box").join("zoloz").join("a.md");
 
         let result = cmd_rm(&mut db, &root, "zoloz/a.md");
         assert!(result.is_ok());
 
-        // 文件仍存在(deleted=false)
-        assert!(doc_abs.exists());
+        // 原文件已移入 .trash-box(保持相对路径结构),不再留在正常目录
+        assert!(!doc_abs.exists());
+        assert!(trash_abs.exists());
 
         // 索引中已移除
         let docs = db.all_docs_meta().unwrap();
@@ -1477,6 +1602,99 @@ mod tests {
         // outlinks 为空
         let out = db.outlinks("zoloz/a.md").unwrap();
         assert!(out.is_empty());
+    }
+
+    #[test]
+    fn test_rm_nested_moves_to_trash_box() {
+        let (_dir, root, mut db) = setup_kb_with_docs();
+        // 构造嵌套领域 validated 文档(绕过 create-domain 的独立 db 连接)
+        write_doc(
+            &root,
+            "zoloz/pay/pay.md",
+            "---\nname: pay\nsummary: pay summary\ndomain: zoloz/pay\ntags: []\nstatus: validated\n---\npay root\n",
+        );
+        write_doc(
+            &root,
+            "zoloz/pay/invoice.md",
+            "---\nname: invoice\nsummary: invoice summary\ndomain: zoloz/pay\ntags: []\nstatus: validated\n---\ninvoice body\n",
+        );
+        db.upsert_doc(&root, "zoloz/pay/pay.md").unwrap();
+        db.upsert_doc(&root, "zoloz/pay/invoice.md").unwrap();
+        let doc_abs = Path::new(&root).join("zoloz").join("pay").join("invoice.md");
+        let trash_abs = Path::new(&root)
+            .join(".trash-box")
+            .join("zoloz")
+            .join("pay")
+            .join("invoice.md");
+
+        let result = cmd_rm(&mut db, &root, "zoloz/pay/invoice.md");
+        assert!(result.is_ok());
+
+        // 嵌套相对路径结构在 .trash-box 下完整保留
+        assert!(!doc_abs.exists());
+        assert!(trash_abs.exists());
+
+        let docs = db.all_docs_meta().unwrap();
+        assert!(!docs.iter().any(|d| d.path == "zoloz/pay/invoice.md"));
+    }
+
+    #[test]
+    fn test_rm_then_repair_does_not_restore() {
+        let (_dir, root, mut db) = setup_kb_with_docs();
+        cmd_add(
+            &mut db,
+            &root,
+            "zoloz/a.md",
+            "zoloz/zoloz.md",
+            None,
+            "a summary", vec!["tag1".to_string()],
+            "a body"
+        ).unwrap();
+        cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
+        assert_eq!(db.all_docs_meta().unwrap().len(), 2);
+
+        cmd_rm(&mut db, &root, "zoloz/a.md").unwrap();
+        assert_eq!(db.all_docs_meta().unwrap().len(), 1);
+
+        // 回归点:修复前 full_rebuild/repair_stale 会把 .trash-box 文档恢复回索引(2->1->2)
+        db.full_rebuild(&root).unwrap();
+        let docs = db.all_docs_meta().unwrap();
+        assert_eq!(docs.len(), 1);
+        assert!(!docs.iter().any(|d| d.path == "zoloz/a.md"));
+
+        let stats = db.repair_stale(&root).unwrap();
+        assert_eq!(stats.added, 0);
+        let docs = db.all_docs_meta().unwrap();
+        assert_eq!(docs.len(), 1);
+        assert!(!docs.iter().any(|d| d.path == "zoloz/a.md"));
+    }
+
+    #[test]
+    fn test_rm_trash_conflict_error() {
+        let (_dir, root, mut db) = setup_kb_with_docs();
+        cmd_add(
+            &mut db,
+            &root,
+            "zoloz/a.md",
+            "zoloz/zoloz.md",
+            None,
+            "a summary", vec!["tag1".to_string()],
+            "a body"
+        ).unwrap();
+        cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
+
+        // 预置同名 trash 文件
+        let trash_abs = Path::new(&root).join(".trash-box").join("zoloz").join("a.md");
+        std::fs::create_dir_all(trash_abs.parent().unwrap()).unwrap();
+        std::fs::write(&trash_abs, "old trash").unwrap();
+
+        let result = cmd_rm(&mut db, &root, "zoloz/a.md");
+        assert!(result.is_err());
+
+        // 冲突时索引与文件均保持原状
+        assert!(Path::new(&root).join("zoloz").join("a.md").exists());
+        let docs = db.all_docs_meta().unwrap();
+        assert!(docs.iter().any(|d| d.path == "zoloz/a.md"));
     }
 
     #[test]
@@ -1526,6 +1744,93 @@ mod tests {
     fn test_rm_not_found_error() {
         let (_dir, root, mut db) = setup_kb_with_docs();
         let result = cmd_rm(&mut db, &root, "zoloz/nonexistent.md");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_rm_rejects_trash_box_path() {
+        let (_dir, root, mut db) = setup_kb_with_docs();
+        // .trash-box 是回收站保留目录,任何正常命令不得触达
+        let result = cmd_rm(&mut db, &root, ".trash-box/akb/repo-map.md");
+        assert!(result.is_err());
+        let result = cmd_rm(&mut db, &root, ".knowledges/.trash-box/akb/repo-map.md");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_trashbox_restore_ok() {
+        let (_dir, root, mut db) = setup_kb_with_docs();
+        cmd_add(
+            &mut db,
+            &root,
+            "zoloz/a.md",
+            "zoloz/zoloz.md",
+            None,
+            "a summary", vec!["tag1".to_string()],
+            "a body"
+        ).unwrap();
+        cmd_review(&mut db, &root, "zoloz/a.md").unwrap();
+        cmd_rm(&mut db, &root, "zoloz/a.md").unwrap();
+        // rm 后:原路径无文件,trash 有文件,索引移除,root 指向 a 的链接被清理
+        assert!(!Path::new(&root).join("zoloz/a.md").exists());
+        assert!(Path::new(&root).join(".trash-box/zoloz/a.md").exists());
+        assert_eq!(db.all_docs_meta().unwrap().len(), 1);
+        let root_out = db.outlinks("zoloz/zoloz.md").unwrap();
+        assert!(!root_out.iter().any(|(t, _)| t == "zoloz/a.md"), "rm 后 root 指向 a 的链接应被清理");
+
+        // restore:文件回原位置,validated 重新入索引,链接复原
+        let v = cmd_trashbox_restore(&mut db, &root, "zoloz/a.md").unwrap();
+        assert_eq!(v["restored"], true);
+        assert_eq!(v["indexed"], true);
+        assert!(Path::new(&root).join("zoloz/a.md").exists());
+        assert!(!Path::new(&root).join(".trash-box/zoloz/a.md").exists());
+        let docs = db.all_docs_meta().unwrap();
+        assert!(docs.iter().any(|d| d.path == "zoloz/a.md"));
+        // 链接复原:root 指向 a 的 outlink 恢复
+        let root_out = db.outlinks("zoloz/zoloz.md").unwrap();
+        assert!(root_out.iter().any(|(t, _)| t == "zoloz/a.md"), "restore 后 root 指向 a 的链接应复原");
+        // 入链复原:a 的 inlink 包含 root
+        let a_in = db.inlinks("zoloz/a.md").unwrap();
+        assert!(a_in.iter().any(|(s, _)| s == "zoloz/zoloz.md"), "restore 后 a 的入链应复原");
+    }
+
+    #[test]
+    fn test_trashbox_restore_pending_not_indexed() {
+        let (_dir, root, mut db) = setup_kb_with_docs();
+        // 直接构造 pending 文档并移入 trash
+        write_doc(
+            &root,
+            "zoloz/p.md",
+            "---\nname: p\nsummary: p summary\ndomain: zoloz\ntags: []\nstatus: pending\n---\np body\n",
+        );
+        let trash_dir = Path::new(&root).join(".trash-box/zoloz");
+        std::fs::create_dir_all(&trash_dir).unwrap();
+        std::fs::rename(
+            Path::new(&root).join("zoloz/p.md"),
+            trash_dir.join("p.md"),
+        ).unwrap();
+
+        let v = cmd_trashbox_restore(&mut db, &root, "zoloz/p.md").unwrap();
+        assert_eq!(v["restored"], true);
+        assert_eq!(v["indexed"], false);
+        assert!(Path::new(&root).join("zoloz/p.md").exists());
+        let docs = db.all_docs_meta().unwrap();
+        assert!(!docs.iter().any(|d| d.path == "zoloz/p.md"));
+    }
+
+    #[test]
+    fn test_trashbox_restore_conflict_and_not_found() {
+        let (_dir, root, mut db) = setup_kb_with_docs();
+        // 目标已存在:拒绝
+        write_doc(&root, ".trash-box/zoloz/a.md", "---\nname: a\nsummary: a\nstatus: validated\n---\nbody\n");
+        write_doc(&root, "zoloz/a.md", "existing");
+        let result = cmd_trashbox_restore(&mut db, &root, "zoloz/a.md");
+        assert!(result.is_err());
+        // trash 中不存在:拒绝
+        let result = cmd_trashbox_restore(&mut db, &root, "zoloz/nonexistent.md");
+        assert!(result.is_err());
+        // .trash-box 自身路径:拒绝
+        let result = cmd_trashbox_restore(&mut db, &root, ".trash-box/zoloz/a.md");
         assert!(result.is_err());
     }
 
