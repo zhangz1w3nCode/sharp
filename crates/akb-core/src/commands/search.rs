@@ -12,8 +12,7 @@ use crate::error::KbError;
 use crate::util::round2;
 use crate::graph::norm_doc_arg;
 use crate::graph_petgraph::KbGraph;
-use crate::index::{scan_files, tree_to_value};
-
+use crate::index::{tree_to_value, SKIP_DIRS};
 /// 批量序列化 Serialize 切片为 Vec<Value>，失败转 KbError（保留 serde 错误上下文）。
 ///
 /// 用于 cmd_traverse 把 TraversePath 列表转 JSON：任一序列化失败即短路传播，
@@ -302,43 +301,44 @@ pub fn cmd_show(
 
 /// kb domains [domain] — 列出全部领域或指定领域下的子领域。
 ///
-/// 基于 scan_files 推导:domain = 路径第一段,subdomain = 路径第二段。
-/// 无参时返回全部 domain 列表;有参时返回指定 domain 下的 subdomain 列表。
+/// 基于目录结构读取 domain，空 domain 也可被列出。
 pub fn cmd_domains(_db: &mut IndexDb, kb_root_abs: &str, domain: Option<&str>) -> Result<Value, KbError> {
-    let files = scan_files(kb_root_abs);
+    let root = Path::new(kb_root_abs);
+    let directories = WalkDir::new(root)
+        .min_depth(1)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_dir())
+        .filter(|entry| {
+            entry.path().components().all(|component| {
+                !SKIP_DIRS.contains(&component.as_os_str().to_string_lossy().as_ref())
+            })
+        })
+        .filter_map(|entry| {
+            entry.path().strip_prefix(root).ok().map(|path| {
+                path.to_string_lossy().replace('\\', "/")
+            })
+        })
+        .collect::<Vec<_>>();
     match domain {
         None => {
-            let mut domains: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-            for f in &files {
-                let parts: Vec<&str> = f.split('/').collect();
-                if parts.len() > 1 {
-                    domains.insert(parts[0].to_string());
-                }
-            }
+            let domains: std::collections::BTreeSet<String> = directories
+                .iter()
+                .filter_map(|path| path.split('/').next().map(str::to_string))
+                .collect();
             let list: Vec<String> = domains.into_iter().collect();
-            Ok(json!({
-                "domains": list,
-                "total": list.len(),
-            }))
+            Ok(json!({ "domains": list, "total": list.len() }))
         }
         Some(domain) => {
             let domain = domain.trim().trim_matches('/').to_string();
             let prefix = format!("{}/", domain);
-            let mut subdomains: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-            for f in &files {
-                if let Some(rest) = f.strip_prefix(&prefix) {
-                    let parts: Vec<&str> = rest.split('/').collect();
-                    if parts.len() > 1 {
-                        subdomains.insert(parts[0].to_string());
-                    }
-                }
-            }
+            let subdomains: std::collections::BTreeSet<String> = directories
+                .iter()
+                .filter_map(|path| path.strip_prefix(&prefix))
+                .filter_map(|rest| rest.split('/').next().map(str::to_string))
+                .collect();
             let list: Vec<String> = subdomains.into_iter().collect();
-            Ok(json!({
-                "domain": domain,
-                "sub_domains": list,
-                "total": list.len(),
-            }))
+            Ok(json!({ "domain": domain, "sub_domains": list, "total": list.len() }))
         }
     }
 }
@@ -804,6 +804,22 @@ mod tests {
         let subs = v["sub_domains"].as_array().unwrap();
         assert!(subs.iter().any(|s| s == "pay"));
         assert_eq!(v["total"], 1);
+    }
+
+    #[test]
+    fn test_domains_excludes_skip_dirs() {
+        let (_dir, root, mut db) = setup_ab_chain();
+        // 创建空 domain
+        std::fs::create_dir_all(Path::new(&root).join("newdomain")).unwrap();
+        // 创建应被排除的目录
+        std::fs::create_dir_all(Path::new(&root).join(".git")).unwrap();
+        std::fs::create_dir_all(Path::new(&root).join(".claude")).unwrap();
+        let v = cmd_domains(&mut db, &root, None).unwrap();
+        let list = v["domains"].as_array().unwrap();
+        assert!(list.iter().any(|d| d == "zoloz"));
+        assert!(list.iter().any(|d| d == "newdomain"));
+        assert!(!list.iter().any(|d| d == ".git"), ".git 不应被列为 domain");
+        assert!(!list.iter().any(|d| d == ".claude"), ".claude 不应被列为 domain");
     }
 
 

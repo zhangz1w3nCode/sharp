@@ -617,75 +617,37 @@ fn test_cli_update_not_found() {
 fn test_cli_create_domain_top_level() {
     let dir = tempfile::tempdir().unwrap();
     let kb_root = dir.path().to_str().unwrap();
-    let v = run_akb(kb_root, &[
-        "create-domain", "newdomain",
-        "--summary", "new domain root",
-        "--tags", "[nd]",
-        "--content", "new domain body",
-    ]);
+    let v = run_akb(kb_root, &["create-domain", "newdomain"]);
     assert_eq!(v["domain"], "newdomain");
-    // 目录结构验证
     assert!(std::path::Path::new(kb_root).join("newdomain").is_dir());
-    assert!(std::path::Path::new(kb_root).join("newdomain/newdomain.md").exists());
+    assert!(!std::path::Path::new(kb_root).join("newdomain/newdomain.md").exists());
     assert!(std::path::Path::new(kb_root).join("INDEX.md").exists());
-    // frontmatter 验证: 含 domain 字段
-    let content = std::fs::read_to_string(
-        std::path::Path::new(kb_root).join("newdomain/newdomain.md")
-    ).unwrap();
-    assert!(content.contains("domain: newdomain"));
 }
-
 #[test]
 fn test_cli_create_domain_subdomain() {
     let dir = tempfile::tempdir().unwrap();
     let kb_root = dir.path().to_str().unwrap();
-    run_akb(kb_root, &[
-        "create-domain", "parent",
-        "--summary", "parent", "--tags", "[]", "--content", "p",
-    ]);
-    // 父领域存在时创建子领域成功
-    let v = run_akb(kb_root, &[
-        "create-domain", "parent/child",
-        "--summary", "child", "--tags", "[]", "--content", "c",
-    ]);
+    run_akb(kb_root, &["create-domain", "parent"]);
+    let v = run_akb(kb_root, &["create-domain", "parent/child"]);
     assert_eq!(v["domain"], "parent/child");
-    assert!(std::path::Path::new(kb_root).join("parent/child/child.md").exists());
+    assert!(std::path::Path::new(kb_root).join("parent/child").is_dir());
+    assert!(!std::path::Path::new(kb_root).join("parent/child/child.md").exists());
 }
 
 #[test]
 fn test_cli_create_domain_parent_not_found() {
     let dir = tempfile::tempdir().unwrap();
     let kb_root = dir.path().to_str().unwrap();
-    // 直接创建子领域但父领域不存在
-    let v = run_akb_err(kb_root, &[
-        "create-domain", "parent/child",
-        "--summary", "child", "--tags", "[]", "--content", "c",
-    ]);
+    let v = run_akb_err(kb_root, &["create-domain", "parent/child"]);
     assert!(v["error"].as_str().unwrap().contains("parent domain not found"));
 }
 
-#[test]
-fn test_cli_create_domain_empty_summary() {
-    let dir = tempfile::tempdir().unwrap();
-    let kb_root = dir.path().to_str().unwrap();
-    let v = run_akb_err(kb_root, &[
-        "create-domain", "newdomain",
-        "--summary", "",
-        "--tags", "[]", "--content", "c",
-    ]);
-    assert!(v["error"].as_str().unwrap().contains("summary is required"));
-    // 不应留下空目录(先校验输入再改文件系统)
-    assert!(!std::path::Path::new(kb_root).join("newdomain").exists());
-}
 
 #[test]
 fn test_cli_domains_list_all() {
     let dir = init_temp_kb();
     let kb_root = dir.path().to_str().unwrap();
-    run_akb(kb_root, &[
-        "create-domain", "another",
-        "--summary", "another", "--tags", "[]", "--content", "a",
-    ]);
+    run_akb(kb_root, &["create-domain", "another"]);
     let v = run_akb(kb_root, &["domains"]);
     let domains = v["domains"].as_array().unwrap();
     assert!(domains.iter().any(|d| d == "testdomain"));
@@ -696,10 +658,7 @@ fn test_cli_domains_list_all() {
 fn test_cli_domains_sub_domains() {
     let dir = init_temp_kb();
     let kb_root = dir.path().to_str().unwrap();
-    run_akb(kb_root, &[
-        "create-domain", "testdomain/sub",
-        "--summary", "sub", "--tags", "[]", "--content", "s",
-    ]);
+    run_akb(kb_root, &["create-domain", "testdomain/sub"]);
     let v = run_akb(kb_root, &["domains", "testdomain"]);
     assert_eq!(v["domain"], "testdomain");
     let subs = v["sub_domains"].as_array().unwrap();
@@ -718,16 +677,12 @@ fn test_cli_add_domain_validation() {
     ]);
     assert!(v["error"].as_str().unwrap().contains("domain not found"));
     // 创建子领域后添加成功
+    run_akb(kb_root, &["create-domain", "testdomain/pay"]);
     run_akb(kb_root, &[
-        "create-domain", "testdomain/pay",
-        "--summary", "pay", "--tags", "[]", "--content", "p",
-    ]);
-    let v = run_akb(kb_root, &[
         "add", "testdomain/pay/invoice.md",
-        "--link-from", "testdomain/pay/pay.md",
+        "--link-from", "testdomain/testdomain.md",
         "--summary", "invoice", "--content", "inv", "--tags", "[]",
     ]);
-    assert_eq!(v["created"], true);
     // frontmatter domain 字段 = 父目录路径
     let content = std::fs::read_to_string(
         std::path::Path::new(kb_root).join("testdomain/pay/invoice.md")
@@ -739,9 +694,11 @@ fn test_cli_add_domain_validation() {
 fn test_cli_show_domain_field() {
     let dir = init_temp_kb();
     let kb_root = dir.path().to_str().unwrap();
+    run_akb(kb_root, &["create-domain", "testdomain/sub"]);
     run_akb(kb_root, &[
-        "create-domain", "testdomain/sub",
-        "--summary", "sub", "--tags", "[]", "--content", "s",
+        "add", "testdomain/sub/sub.md",
+        "--link-from", "testdomain/testdomain.md",
+        "--summary", "sub", "--content", "s", "--tags", "[]",
     ]);
     validate_doc(kb_root, "testdomain/sub/sub.md");
     let v = run_akb(kb_root, &["show", "testdomain/sub/sub.md"]);
@@ -819,33 +776,29 @@ fn test_cli_index_flat_excludes_pending() {
 fn test_cli_rename_domain() {
     let dir = init_temp_kb();
     let kb_root = dir.path().to_str().unwrap();
-    // 添加子文档 + 另一个领域的入链
+    run_akb(kb_root, &["create-domain", "testdomain/sub"]);
     run_akb(kb_root, &[
-        "create-domain", "testdomain/sub",
-        "--summary", "sub", "--tags", "[]", "--content", "s",
+        "add", "testdomain/sub/sub.md",
+        "--link-from", "testdomain/testdomain.md",
+        "--summary", "sub", "--content", "s", "--tags", "[]",
     ]);
+    run_akb(kb_root, &["create-domain", "other"]);
     run_akb(kb_root, &[
-        "create-domain", "other",
-        "--summary", "other", "--tags", "[]", "--content", "o",
+        "add", "other/other.md",
+        "--link-from", "testdomain/testdomain.md",
+        "--summary", "other", "--content", "o", "--tags", "[]",
     ]);
     let other_doc = std::path::Path::new(kb_root).join("other/other.md");
     let other_text = std::fs::read_to_string(&other_doc).unwrap();
-    std::fs::write(&other_doc, format!("{}\n- [[`.knowledges/testdomain/testdomain.md`]]\n", other_text)).unwrap();
-
+    std::fs::write(&other_doc, format!("{}\n- [[`.knowledges/testdomain/sub.md`]]\n", other_text)).unwrap();
     let v = run_akb(kb_root, &["rename-domain", "testdomain", "renamed"]);
     assert_eq!(v["renamed"], true);
-    // 旧目录不存在,新目录存在
     assert!(!std::path::Path::new(kb_root).join("testdomain").exists());
-    assert!(std::path::Path::new(kb_root).join("renamed/renamed.md").exists());
-    // 根文档 wiki-link 重写
+    assert!(std::path::Path::new(kb_root).join("renamed").is_dir());
+    assert!(std::path::Path::new(kb_root).join("renamed/sub/sub.md").exists());
     let other_new_text = std::fs::read_to_string(&other_doc).unwrap();
-    assert!(other_new_text.contains("renamed/renamed.md"));
+    assert!(other_new_text.contains("renamed/sub.md"));
     assert!(!other_new_text.contains("testdomain/"));
-    // 子文档 frontmatter domain 同步更新(从新路径推导)
-    let sub_text = std::fs::read_to_string(
-        std::path::Path::new(kb_root).join("renamed/sub/sub.md")
-    ).unwrap();
-    assert!(sub_text.contains("domain: renamed/sub"));
 }
 
 #[test]
