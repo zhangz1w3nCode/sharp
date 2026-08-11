@@ -6,7 +6,7 @@ use std::path::Path;
 use walkdir::WalkDir;
 
 /// 跳过的目录名(版本控制/工具/回收站目录)。
-const SKIP_DIRS: &[&str] = &[".git", ".claude", ".svn", ".hg", ".trash-box"];
+pub const SKIP_DIRS: &[&str] = &[".git", ".claude", ".svn", ".hg", ".trash-box"];
 
 /// 扫描 kb_root_abs 下所有 .md 文件,返回相对路径列表(已排序)。
 ///

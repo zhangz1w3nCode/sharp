@@ -89,7 +89,7 @@ enum Commands {
     Init(InitArgs),
     /// 健康检查(详细)
     Doctor,
-    /// 创建领域/子领域目录 + 根文档
+    /// 创建领域/子领域目录
     CreateDomain(CreateDomainArgs),
     /// 列出全部领域或指定领域下的子领域
     Domains {
@@ -113,15 +113,6 @@ enum Commands {
 struct CreateDomainArgs {
     /// 领域/子领域路径(如 zoloz 或 zoloz/sub)
     domain: String,
-    /// frontmatter summary(根文档摘要,必需)
-    #[arg(long)]
-    summary: String,
-    /// frontmatter tags(格式 [tag1,tag2,...],默认 [domain])
-    #[arg(long)]
-    tags: String,
-    /// 根文档正文内容
-    #[arg(long)]
-    content: String,
 }
 
 #[derive(clap::Args)]
@@ -354,13 +345,7 @@ fn main() {
             ),
             Err(e) => Err(KbError::Other(e)),
         },
-        Commands::CreateDomain(args) => match parse_tags(&args.tags) {
-            Ok(tags) => write::cmd_create_domain(
-                &kb_root_abs, &args.domain, &args.summary,
-                tags, &args.content,
-            ),
-            Err(e) => Err(KbError::Other(e)),
-        },
+        Commands::CreateDomain(args) => write::cmd_create_domain(&kb_root_abs, &args.domain),
         command => {
             let mut db = open_db(&kb_root_abs);
             match command {
