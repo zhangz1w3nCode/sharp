@@ -120,6 +120,6 @@ sharp/
 └── Cargo.toml     # workspace
 ```
 
-## 许可证
+## License
 
-见 LICENSE。
+[MIT](./LICENSE)
