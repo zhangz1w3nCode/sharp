@@ -84,7 +84,7 @@ impl IndexDb {
     /// 打开或创建索引文件。
     /// 打开或创建索引文件。版本迁移时自动重建索引避免空库。
     pub fn open(kb_root_abs: &str) -> Result<Self, KbError> {
-        let index_path = Path::new(kb_root_abs).join(".akb_index.sqlite");
+        let index_path = Path::new(kb_root_abs).join(".sharp_index.sqlite");
         let conn = Connection::open(&index_path).map_err(KbError::Sqlite)?;
         let mut db = IndexDb { conn, index_path };
         let migrated = db.ensure_schema().map_err(KbError::Sqlite)?;
@@ -928,7 +928,7 @@ mod tests {
         }
         // 模拟 v5 库:改 schema_version 为 5 + docs 表改回 category 列
         {
-            let conn = rusqlite::Connection::open(Path::new(&root).join(".akb_index.sqlite")).unwrap();
+            let conn = rusqlite::Connection::open(Path::new(&root).join(".sharp_index.sqlite")).unwrap();
             conn.execute("UPDATE meta SET value='5' WHERE key='schema_version'", []).unwrap();
             conn.execute("ALTER TABLE docs RENAME TO docs_v6", []).unwrap();
             conn.execute(

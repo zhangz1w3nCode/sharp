@@ -1,4 +1,4 @@
-# 知识库 · 桌面应用
+# Sharp · 桌面应用
 
 基于 `fe/` 原型 (prototypes-v2 + base-resource) 实现的 Tauri + React + TS 前端应用。
 设计语言:Claude 暖奶油编辑风(cream canvas · coral 稀缺点缀 · dark-navy code-window · serif 展示标题)。

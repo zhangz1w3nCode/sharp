@@ -1,5 +1,5 @@
 [package]
-name = "akb-core"
+name = "sharp-core"
 version.workspace = true
 edition.workspace = true
 
@@ -7,7 +7,7 @@ edition.workspace = true
 workspace = true
 
 [lib]
-name = "akb_core"
+name = "sharp_core"
 path = "src/lib.rs"
 
 [dependencies]

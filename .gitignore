@@ -1,13 +1,13 @@
 # ---- macOS ----
 .DS_Store
 
-# ---- akb-tauri: 前端 ----
-crates/akb-tauri/node_modules/
-crates/akb-tauri/dist/
+# ---- gui: 前端 ----
+crates/gui/node_modules/
+crates/gui/dist/
 
 # ---- Rust workspace 构建产物 ----
 target/
-crates/akb-tauri/src-tauri/gen/
+crates/gui/src-tauri/gen/
 
 # ---- 本地临时 ----
 *.local

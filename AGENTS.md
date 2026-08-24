@@ -15,9 +15,9 @@
 - `.knowledges`:知识库
 - `.worktrees`:Git工作区
 - `crates`:项目代码仓库
-  - `akb-core`:core层:核心操作原子能力
-  - `akb-cli`:cli层:给agent透出使用cli命令操作接口
-  - `akb-tauri`:gui层:给Tauri桌面应用透出的操作接口
+  - `core`:core层:核心操作原子能力
+  - `cli`:cli层:给agent透出使用cli命令操作接口
+  - `gui`:gui层:给Tauri桌面应用透出的操作接口
 
 # 重要同时必须强制遵循事项
 - **重要**: **Sub-Agent使用**

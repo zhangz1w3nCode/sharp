@@ -1,4 +1,4 @@
-//! akb - agentic-knowledge-base CLI(Rust 重写版,SQLite + petgraph 索引)。
+//! sharp CLI(Rust 重写版,SQLite + petgraph 索引)。
 //!
 //! 索引一致性策略:所有操作走 CLI,写命令(add/update/rm)实时
 //! 单点增量更新索引(upsert_doc/remove_doc),读命令只读索引不扫文件系统。
@@ -9,12 +9,12 @@ use std::path::Path;
 use clap::{Parser, Subcommand};
 use serde_json::{json, Value};
 
-use akb_core::commands::{health, search, write};
-use akb_core::db::IndexDb;
-use akb_core::error::KbError;
+use sharp_core::commands::{health, search, write};
+use sharp_core::db::IndexDb;
+use sharp_core::error::KbError;
 
 #[derive(Parser)]
-#[command(name = "kb", about = "knowledge-base CLI: 确定性文件级/图级操作")]
+#[command(name = "sharp", about = "Sharp CLI: 确定性文件级/图级操作")]
 struct Cli {
     /// 知识库根目录(默认: CWD/.knowledges)
     #[arg(long, global = true)]
@@ -263,7 +263,7 @@ fn open_db(kb_root_abs: &str) -> IndexDb {
             output_json(
                 &json!({
                     "error": format!("failed to open index: {}", e),
-                    "hint": "try running 'akb index --build' to rebuild the index"
+                    "hint": "try running 'sharp index --build' to rebuild the index"
                 }),
             );
             std::process::exit(2);

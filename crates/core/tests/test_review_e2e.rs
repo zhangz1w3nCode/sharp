@@ -1,6 +1,6 @@
-use akb_core::commands::write::{cmd_init, cmd_add, cmd_review, cmd_update};
-use akb_core::commands::search::cmd_search;
-use akb_core::db::IndexDb;
+use sharp_core::commands::write::{cmd_init, cmd_add, cmd_review, cmd_update};
+use sharp_core::commands::search::cmd_search;
+use sharp_core::db::IndexDb;
 
 #[test]
 fn test_review_writes_to_index() {
@@ -11,10 +11,10 @@ fn test_review_writes_to_index() {
     cmd_init(root, "test", "root", vec![], "root body").unwrap();
     let mut db = IndexDb::open(root).unwrap();
     db.full_rebuild(root).unwrap();
-    cmd_add(&mut db, root, "test/article.md", "test/test.md", None, "article summary", vec!["tech".to_string()], "akb framework content").unwrap();
+    cmd_add(&mut db, root, "test/article.md", "test/test.md", None, "article summary", vec!["tech".to_string()], "sharp framework content").unwrap();
 
     // 2. 搜索 (pending 应搜不到)
-    let v = cmd_search(&mut db, root, "akb", None, 0).unwrap();
+    let v = cmd_search(&mut db, root, "sharp", None, 0).unwrap();
     assert!(v["matches"].as_array().unwrap().is_empty(), "pending不应被搜索到");
 
     // 3. 索引中无文档
@@ -27,7 +27,7 @@ fn test_review_writes_to_index() {
     assert_eq!(r["already_validated"], false);
 
     // 5. 搜索 (应搜到)
-    let v = cmd_search(&mut db, root, "akb", None, 0).unwrap();
+    let v = cmd_search(&mut db, root, "sharp", None, 0).unwrap();
     assert_eq!(v["matches"].as_array().unwrap().len(), 1, "review后应可搜索");
 
     // 6. 索引中现在有 article.md

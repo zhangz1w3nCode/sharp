@@ -94,7 +94,7 @@ pub fn run() {
         builder = builder.plugin(tauri_plugin_pilot::init());
     }
 
-    // TODO(phase-2): 替换 scan_dir 临时桥接代码为 akb_core::commands::* 薄适配层
+    // TODO(phase-2): 替换 scan_dir 临时桥接代码为 sharp_core::commands::* 薄适配层
     builder
         .invoke_handler(tauri::generate_handler![scan_dir])
         .run(tauri::generate_context!())

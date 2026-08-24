@@ -175,7 +175,7 @@ pub fn cmd_init(
         return Err(KbError::Other(format!("invalid domain name: {}", domain)));
     }
     if domain.contains('/') {
-        return Err(KbError::Other("init only supports top-level domain (use 'akb create domain' for nested)".into()));
+        return Err(KbError::Other("init only supports top-level domain (use 'sharp create domain' for nested)".into()));
     }
     if domain == ".trash-box" {
         return Err(KbError::Other(".trash-box is reserved for deleted docs".into()));
@@ -288,7 +288,7 @@ pub fn cmd_create_domain(
             cur = if cur.is_empty() { seg.to_string() } else { format!("{}/{}", cur, seg) };
             if !abs_path(kb_root_abs, &cur).is_dir() {
                 return Err(KbError::Other(format!(
-                    "parent domain not found: {} (create it first with 'akb create domain {}')",
+                    "parent domain not found: {} (create it first with 'sharp create domain {}')",
                     cur, cur
                 )));
             }
@@ -384,7 +384,7 @@ fn add_single(
             }
         }
         if !missing.is_empty() {
-            return Err(format!("domain not found: {} (use 'akb create domain' to create it first)", missing.join(", ")));
+            return Err(format!("domain not found: {} (use 'sharp create domain' to create it first)", missing.join(", ")));
         }
     }
     // 创建目录
@@ -633,7 +633,7 @@ pub fn cmd_rm(db: &mut IndexDb, kb_root_abs: &str, doc: &str) -> Result<Value, K
         "reachability": reachability,
         "warnings": warnings,
         "hint": format!(
-            "文档已移入 .trash-box 并从索引移除。如需恢复请运行: akb trashbox restore {} (inlinks 字段列出指向本文档的引用)",
+            "文档已移入 .trash-box 并从索引移除。如需恢复请运行: sharp trashbox restore {} (inlinks 字段列出指向本文档的引用)",
             doc
         ),
     }))
@@ -955,7 +955,7 @@ pub fn cmd_rename_domain(
         for seg in &parts[..parts.len() - 1] {
             cur = if cur.is_empty() { seg.to_string() } else { format!("{}/{}", cur, seg) };
             if !abs_path(kb_root_abs, &cur).is_dir() {
-                return Err(KbError::Other(format!("parent domain not found: {} (create it first with 'akb create domain {}')", cur, cur)));
+                return Err(KbError::Other(format!("parent domain not found: {} (create it first with 'sharp create domain {}')", cur, cur)));
             }
         }
     }
@@ -1721,9 +1721,9 @@ mod tests {
     fn test_rm_rejects_trash_box_path() {
         let (_dir, root, mut db) = setup_kb_with_docs();
         // .trash-box 是回收站保留目录,任何正常命令不得触达
-        let result = cmd_rm(&mut db, &root, ".trash-box/akb/repo-map.md");
+        let result = cmd_rm(&mut db, &root, ".trash-box/sharp/repo-map.md");
         assert!(result.is_err());
-        let result = cmd_rm(&mut db, &root, ".knowledges/.trash-box/akb/repo-map.md");
+        let result = cmd_rm(&mut db, &root, ".knowledges/.trash-box/sharp/repo-map.md");
         assert!(result.is_err());
     }
 

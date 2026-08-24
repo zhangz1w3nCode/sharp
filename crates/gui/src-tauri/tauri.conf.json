@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "知识库",
+  "productName": "Sharp",
   "version": "0.2.0",
-  "identifier": "com.knowledge-base.app",
+  "identifier": "com.sharp.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "知识库",
+        "title": "Sharp",
         "width": 1180,
         "height": 760,
         "minWidth": 880,

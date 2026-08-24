@@ -30,32 +30,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "akb-cli"
-version = "0.2.0"
-dependencies = [
- "akb-core",
- "clap",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "akb-core"
-version = "0.2.0"
-dependencies = [
- "chrono",
- "petgraph",
- "regex",
- "rusqlite",
- "serde",
- "serde_json",
- "serde_yaml",
- "tempfile",
- "thiserror 1.0.69",
- "walkdir",
-]
-
-[[package]]
 name = "alloc-no-stdlib"
 version = "2.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1849,19 +1823,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "knowledge-base"
-version = "0.2.0"
-dependencies = [
- "akb-core",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-fs",
- "tauri-plugin-pilot",
-]
-
-[[package]]
 name = "libappindicator"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3065,6 +3026,45 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "digest",
+]
+
+[[package]]
+name = "sharp"
+version = "0.2.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sharp-core",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-fs",
+ "tauri-plugin-pilot",
+]
+
+[[package]]
+name = "sharp-cli"
+version = "0.2.0"
+dependencies = [
+ "clap",
+ "serde_json",
+ "sharp-core",
+ "tempfile",
+]
+
+[[package]]
+name = "sharp-core"
+version = "0.2.0"
+dependencies = [
+ "chrono",
+ "petgraph",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "thiserror 1.0.69",
+ "walkdir",
 ]
 
 [[package]]

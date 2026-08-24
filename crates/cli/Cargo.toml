@@ -1,5 +1,5 @@
 [package]
-name = "akb-cli"
+name = "sharp-cli"
 version.workspace = true
 edition.workspace = true
 
@@ -7,11 +7,11 @@ edition.workspace = true
 workspace = true
 
 [[bin]]
-name = "akb"
+name = "sharp"
 path = "src/main.rs"
 
 [dependencies]
-akb-core = { path = "../akb-core" }
+sharp-core = { path = "../core" }
 clap = { version = "4", features = ["derive"] }
 serde_json = "1"
 

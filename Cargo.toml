@@ -1,11 +1,11 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/akb-core",
-    "crates/akb-cli",
-    "crates/akb-tauri/src-tauri",
+    "crates/core",
+    "crates/cli",
+    "crates/gui/src-tauri",
 ]
-default-members = ["crates/akb-core", "crates/akb-cli"]
+default-members = ["crates/core", "crates/cli"]
 
 [workspace.package]
 version = "0.2.0"
