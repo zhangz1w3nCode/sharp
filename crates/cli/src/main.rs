@@ -28,6 +28,8 @@ struct Cli {
 enum Commands {
     /// 索引管理:重建/状态/树形/平铺
     Index(IndexArgs),
+    /// 全量知识图谱(全部 validated 文档节点 + 全部边/关系)
+    Graph,
     /// 正向/反向 wiki-link
     Links {
         /// 源文档路径
@@ -350,6 +352,7 @@ fn main() {
             let mut db = open_db(&kb_root_abs);
             match command {
                 Commands::Index(args) => run_index(&mut db, &kb_root_abs, args),
+                Commands::Graph => search::cmd_graph(&mut db, &kb_root_abs),
                 Commands::Links { from, reverse } => {
                     search::cmd_links(&mut db, &kb_root_abs, &from, reverse)
                 }

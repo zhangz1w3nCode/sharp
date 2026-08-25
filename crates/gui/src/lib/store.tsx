@@ -189,6 +189,7 @@ export interface Api {
   reject: (id: string) => void;
   createFromBroken: (path: string) => void;
   toast: (msg: string) => void;
+  upsertCard: (card: Card) => void;
 }
 
 const Ctx = createContext<{ state: State; api: Api } | null>(null);
@@ -304,6 +305,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         toast("已生成待审 → 知识审核");
       },
       toast,
+      upsertCard: (card) => dispatch({ type: "upsertCard", card }),
     };
   }, [state.cards]);
 

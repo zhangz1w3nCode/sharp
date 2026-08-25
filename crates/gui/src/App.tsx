@@ -62,7 +62,7 @@ function Shell() {
         {state.view === "graph" && <GraphView />}
         {state.view === "search" && <SearchView />}
         {state.view === "kanban" && <KanbanView />}
-        {state.view === "kb" && (
+        {(state.view === "kb" || state.view === "graph") && (
           <>
             {state.detailOpen && <Resizer pane={detailRef} min={300} max={1100} />}
             <DetailPanel ref={detailRef} />

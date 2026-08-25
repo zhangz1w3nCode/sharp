@@ -42,6 +42,47 @@ pub fn cmd_index(db: &mut IndexDb, _kb_root_abs: &str, flat: bool) -> Result<Val
     }
 }
 
+/// sharp graph — 全量知识图谱(全部 validated 文档节点 + 全部边/关系)。
+pub fn cmd_graph(db: &mut IndexDb, _kb_root_abs: &str) -> Result<Value, KbError> {
+    let docs = db
+        .all_docs_meta()
+        .map_err(|e| KbError::Other(format!("docs meta query failed: {}", e)))?;
+    let links = db
+        .all_links()
+        .map_err(|e| KbError::Other(format!("links query failed: {}", e)))?;
+
+    let nodes: Vec<Value> = docs
+        .iter()
+        .map(|d| {
+            json!({
+                "path": d.path,
+                "name": d.name,
+                "summary": d.summary,
+                "domain": d.domain,
+                "tags": d.tags,
+                "status": d.status,
+            })
+        })
+        .collect();
+    let edges: Vec<Value> = links
+        .iter()
+        .map(|(source, target, relation)| {
+            json!({
+                "source": source,
+                "target": target,
+                "relation": relation,
+            })
+        })
+        .collect();
+
+    Ok(json!({
+        "total_nodes": nodes.len(),
+        "total_edges": edges.len(),
+        "nodes": nodes,
+        "edges": edges,
+    }))
+}
+
 /// kb links --from <doc> [--reverse]
 pub fn cmd_links(
     db: &mut IndexDb,
