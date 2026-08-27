@@ -97,3 +97,21 @@ export async function getDoc(
 ): Promise<DocResponse> {
   return invoke<DocResponse>("get_doc", { kbRoot, doc, summary });
 }
+
+export interface BacklinkItem {
+  doc: string;
+  relation: string | null;
+  exists: boolean;
+}
+
+export interface BacklinksResponse {
+  doc: string;
+  direction: string;
+  count: number;
+  related: BacklinkItem[];
+}
+
+/** 获取文档反向链接(inlinks) */
+export async function getBacklinks(kbRoot: string, doc: string): Promise<BacklinksResponse> {
+  return invoke<BacklinksResponse>("get_backlinks", { kbRoot, doc });
+}

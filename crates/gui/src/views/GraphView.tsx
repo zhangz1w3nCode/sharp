@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { Settings, Link2 } from "lucide-react";
 import { useApp } from "../lib/store";
 import { GraphData } from "../lib/derive";
-import { getGraph, getDoc } from "../lib/fs";
+import { getGraph, getDoc, getBacklinks } from "../lib/fs";
 import { Card } from "../lib/types";
+import { Backlink } from "../lib/derive";
 import EmptyDots from "../components/EmptyDots";
 
 interface SimNode {
@@ -30,23 +31,11 @@ export default function GraphView() {
   const { state, api } = useApp();
   const [data, setData] = useState<GraphData>({ nodes: [], edges: [] });
   useEffect(() => {
-    getGraph(state.kbRoot).then((graph) => {
-      setData(graph);
-      // 把图谱节点加入 cards，让 Markdown 能识别 wikilink 路径
-      graph.nodes.forEach((node) => {
-        if (!state.cards.some((c) => c.id === node.id)) {
-          api.upsertCard({
-            id: node.id,
-            path: `.knowledges/${node.id}`,
-            title: node.title,
-            summary: node.summary,
-            body: "",
-            starred: false,
-            updatedAt: 0,
-          });
-        }
+    getGraph(state.kbRoot)
+      .then(setData)
+      .catch(() => {
+        api.toast("图谱加载失败，请运行 sharp index --build 构建索引");
       });
-    }).catch(() => {});
   }, [state.kbRoot]);
 
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -393,29 +382,20 @@ export default function GraphView() {
         starred: false,
         updatedAt: Date.now(),
       };
-      // 加载反向链接来源文档的 body,让 backlinksOf 能提取 wikilink
-      const inlinks = data.edges.filter((e) => e.t === i);
-      for (const edge of inlinks) {
-        const sourceNode = data.nodes[edge.s];
-        if (!sourceNode) continue;
-        if (!state.cards.some((c) => c.id === sourceNode.id && c.body !== "")) {
-          try {
-            const blDoc = await getDoc(state.kbRoot, sourceNode.id);
-            api.upsertCard({
-              id: sourceNode.id,
-              path: `.knowledges/${sourceNode.id}`,
-              title: blDoc.frontmatter.name,
-              summary: blDoc.frontmatter.summary,
-              body: blDoc.body,
-              starred: false,
-              updatedAt: 0,
-            });
-          } catch { /* ignore */ }
-        }
-      }
+      // 从后端获取反向链接，不做前端计算
+      const blRes = await getBacklinks(state.kbRoot, n.id);
+      const bl: Backlink[] = blRes.related.map((r) => {
+        const srcNode = data.nodes.find((node) => node.id === r.doc);
+        return {
+          card: { id: r.doc, path: `.knowledges/${r.doc}`, title: srcNode?.title || r.doc, summary: srcNode?.summary || "", body: "", starred: false, updatedAt: 0 },
+          rel: r.relation || "链接",
+        };
+      });
       api.upsertCard(card);
+      api.setBacklinks(bl);
       api.selectCard(card.id);
     } catch {
+      api.toast("文档加载失败");
     }
   }
 
@@ -478,8 +458,8 @@ export default function GraphView() {
                     clickNode(i);
                   }}
                 >
-                  <circle r={(12 * Math.min(1 + Math.sqrt(data.edges.filter((e) => e.s === i).length) * 0.3, 3)) * sim.current.sizeMul} />
-                  <text y={(12 * Math.min(1 + Math.sqrt(data.edges.filter((e) => e.s === i).length) * 0.3, 3)) * sim.current.sizeMul + 4}>{n.title}</text>
+                  <circle r={(sim.current.nodes[i]?.baseR ?? 12) * sim.current.sizeMul} />
+                  <text y={(sim.current.nodes[i]?.baseR ?? 12) * sim.current.sizeMul + 4}>{n.title}</text>
                 </g>
               ))}
             </g>

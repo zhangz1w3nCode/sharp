@@ -4,7 +4,7 @@
    ========================================================================= */
 import { createContext, useContext, useEffect, useMemo, useReducer, ReactNode } from "react";
 import { Card, ReviewItem } from "./types";
-import { pathFor, uid } from "./derive";
+import { Backlink, pathFor, uid } from "./derive";
 import { mockCards, mockQueue } from "../data/mock";
 
 export type View = "kb" | "review" | "graph" | "search" | "kanban";
@@ -33,8 +33,8 @@ interface State {
   kbRoot: string;
   searchDetailId: string | null;
   _searchSidebarRestore: boolean;
+  backlinks: Backlink[];
 }
-
 type Action =
   | { type: "view"; view: View }
   | { type: "select"; id: string | null }
@@ -47,6 +47,7 @@ type Action =
   | { type: "reject"; id: string }
   | { type: "enqueue"; item: ReviewItem }
   | { type: "upsertCard"; card: Card }
+  | { type: "setBacklinks"; backlinks: Backlink[] }
   | { type: "searchDetail"; id: string | null };
 
 const LS_KEY = "kb-state-v1";
@@ -96,6 +97,7 @@ function initState(): State {
     kbRoot: ".knowledges",
     searchDetailId: null,
     _searchSidebarRestore: false,
+    backlinks: [],
   };
 }
 
@@ -109,7 +111,7 @@ function reducer(s: State, a: Action): State {
       return { ...s, view: a.view };
     case "select":
       /* 选中其他卡片 = 退出编辑(同 Esc),保证网格选中与详情内容永远一致 */
-      return { ...s, selectedId: a.id, detailOpen: a.id !== null, editor: null };
+      return { ...s, selectedId: a.id, detailOpen: a.id !== null, editor: null, backlinks: [] };
     case "toggleStar":
       return { ...s, cards: s.cards.map((c) => (c.id === a.id ? { ...c, starred: !c.starred } : c)) };
     case "toggleSidebar":
@@ -142,6 +144,8 @@ function reducer(s: State, a: Action): State {
       const cards = i >= 0 ? s.cards.map((c) => (c.id === a.card.id ? a.card : c)) : [a.card, ...s.cards];
       return { ...s, cards };
     }
+    case "setBacklinks":
+      return { ...s, backlinks: a.backlinks };
     case "approve": {
       const item = s.queue.find((q) => q.id === a.id);
       if (!item) return s;
@@ -190,8 +194,8 @@ export interface Api {
   createFromBroken: (path: string) => void;
   toast: (msg: string) => void;
   upsertCard: (card: Card) => void;
+  setBacklinks: (backlinks: Backlink[]) => void;
 }
-
 const Ctx = createContext<{ state: State; api: Api } | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
@@ -199,7 +203,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     try {
-      localStorage.setItem(LS_KEY, JSON.stringify({ cards: state.cards, queue: state.queue }));
+      localStorage.setItem(LS_KEY, JSON.stringify({
+        cards: state.cards.filter((c) => c.body !== ""),
+        queue: state.queue,
+      }));
     } catch {
       /* 存储不可用时静默 */
     }
@@ -306,6 +313,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       },
       toast,
       upsertCard: (card) => dispatch({ type: "upsertCard", card }),
+      setBacklinks: (backlinks) => dispatch({ type: "setBacklinks", backlinks }),
     };
   }, [state.cards]);
 
@@ -325,3 +333,4 @@ export function useApp() {
   if (!v) throw new Error("useApp must be used within AppProvider");
   return v;
 }
+
