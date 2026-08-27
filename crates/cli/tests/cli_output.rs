@@ -809,3 +809,88 @@ fn test_cli_rename_domain_not_found() {
     assert!(v["error"].as_str().unwrap().contains("not found"));
 }
 
+#[test]
+fn test_cli_graph() {
+    let dir = init_temp_kb();
+    let kb_root = dir.path().to_str().unwrap();
+
+    // init_temp_kb 已创建 validated 根文档;添加子文档并验证
+    let _ = run_sharp(kb_root, &[
+        "add", "testdomain/sub.md",
+        "--link-from", "testdomain/testdomain.md",
+        "--summary", "sub summary",
+        "--tags", "[sub]",
+        "--content", "sub body",
+    ]);
+    validate_doc(kb_root, "testdomain/sub.md");
+
+    // 写入 pending 文档，并让已通过审核的根文档同时指向它。
+    let pending_doc = std::path::Path::new(kb_root).join("testdomain/pending.md");
+    std::fs::write(
+        &pending_doc,
+        "---\nname: pending\nsummary: pending summary\ndomain: testdomain\ntags: [pending]\nstatus: pending\n---\n[[`.knowledges/testdomain/testdomain.md`]]\n",
+    )
+    .unwrap();
+    let root_doc = std::path::Path::new(kb_root).join("testdomain/testdomain.md");
+    let root_content = std::fs::read_to_string(&root_doc).unwrap();
+    std::fs::write(
+        &root_doc,
+        format!("{}\n[[`.knowledges/testdomain/pending.md`]]\n", root_content),
+    )
+    .unwrap();
+    let rebuild = Command::new(sharp_bin())
+        .arg("--kb-root")
+        .arg(kb_root)
+        .args(["index", "--build"])
+        .output()
+        .expect("failed to rebuild index");
+    assert!(rebuild.status.success(), "index rebuild failed");
+
+    // 运行 sharp graph
+    let v = run_sharp(kb_root, &["graph"]);
+
+    // pending 文档及其双向关系都不得出现在全量图中。
+    let pending_path = "testdomain/pending.md";
+    let graph_nodes = v["nodes"].as_array().unwrap();
+    assert!(!graph_nodes.iter().any(|node| node["path"] == pending_path));
+    let graph_edges = v["edges"].as_array().unwrap();
+    assert!(graph_edges.iter().all(|edge| {
+        edge["source"] != pending_path && edge["target"] != pending_path
+    }));
+
+    // 验证 JSON 结构
+    assert!(v["total_nodes"].is_number(), "total_nodes should be a number");
+    assert!(v["total_edges"].is_number(), "total_edges should be a number");
+    assert!(v["nodes"].is_array(), "nodes should be an array");
+    assert!(v["edges"].is_array(), "edges should be an array");
+
+    // 交叉验证: graph nodes 数量 = index --flat 的 documents 数量
+    let idx = run_sharp(kb_root, &["index", "--flat"]);
+    let flat_count = idx["documents"].as_array().unwrap().len();
+    let graph_nodes_count = v["nodes"].as_array().unwrap().len();
+    assert_eq!(graph_nodes_count, flat_count, "graph nodes count should match index --flat");
+
+    // 验证节点字段
+    let first_node = &v["nodes"][0];
+    assert!(first_node["path"].is_string(), "node path should be string");
+    assert!(first_node["name"].is_string(), "node name should be string");
+    assert!(first_node["summary"].is_string(), "node summary should be string");
+    assert!(first_node["domain"].is_string(), "node domain should be string");
+    assert!(first_node["tags"].is_array(), "node tags should be array");
+    assert_eq!(first_node["status"], "validated", "node status should be validated");
+
+    // 验证边:根文档 -> 子文档
+    assert!(v["total_edges"].as_i64().unwrap() >= 1, "should have at least 1 edge");
+    let first_edge = &v["edges"][0];
+    assert!(first_edge["source"].is_string(), "edge source should be string");
+    assert!(first_edge["target"].is_string(), "edge target should be string");
+
+    // 交叉验证:全量 edges >= 单文档出链数
+    let links = run_sharp(kb_root, &["links", "--from", "testdomain/testdomain.md"]);
+    let links_count = links["count"].as_i64().unwrap();
+    assert!(
+        v["total_edges"].as_i64().unwrap() >= links_count,
+        "total_edges ({}) should be >= single doc outlinks ({})",
+        v["total_edges"], links_count
+    );
+}

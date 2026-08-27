@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useEffect, useRef, useState } from "react";
 import { Pencil, X, Check } from "lucide-react";
 import { useApp } from "../lib/store";
 import Markdown from "../components/Markdown";
@@ -95,7 +95,7 @@ export function DetailEdit() {
 function DetailRead() {
   const { state, api } = useApp();
   const card = state.cards.find((c) => c.id === state.selectedId) ?? null;
-  const backlinks = useMemo(() => (card ? backlinksOf(state.cards, card.path) : []), [state.cards, card]);
+  const backlinks = state.backlinks.length > 0 ? state.backlinks : (card ? backlinksOf(state.cards, card.path) : []);
   const bodyRef = useFade<HTMLDivElement>([card?.id]);
 
   if (!card) return null;

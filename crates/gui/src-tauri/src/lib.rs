@@ -9,6 +9,9 @@ use serde::Serialize;
 use std::fs;
 use std::path::PathBuf;
 
+use sharp_core::commands::search;
+use sharp_core::db::IndexDb;
+
 #[derive(Serialize)]
 struct DirEntry {
     name: String,
@@ -83,7 +86,37 @@ fn scan_dir(kb_root: String, dir_path: String) -> Vec<DirEntry> {
     nodes
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// 获取全量知识图谱(全部 validated 文档节点 + 全部边/关系)。
+#[tauri::command]
+fn get_graph(kb_root: String) -> Result<serde_json::Value, String> {
+    let root = project_root(&kb_root).ok_or("project root not found")?;
+    let kb_root_abs = root.join(&kb_root).to_string_lossy().to_string();
+    let mut db = IndexDb::open(&kb_root_abs).map_err(|e| format!("failed to open index: {e}"))?;
+    search::cmd_graph(&mut db, &kb_root_abs).map_err(|e| e.to_string())
+}
+
+/// 按 path 获取文档完整内容(frontmatter + body)。
+#[tauri::command]
+fn get_doc(
+    kb_root: String,
+    doc: String,
+    summary: bool,
+) -> Result<serde_json::Value, String> {
+    let root = project_root(&kb_root).ok_or("project root not found")?;
+    let kb_root_abs = root.join(&kb_root).to_string_lossy().to_string();
+    let mut db = IndexDb::open(&kb_root_abs).map_err(|e| format!("failed to open index: {e}"))?;
+    search::cmd_show(&mut db, &kb_root_abs, &doc, summary).map_err(|e| e.to_string())
+}
+
+/// 获取文档反向链接(inlinks)。
+#[tauri::command]
+fn get_backlinks(kb_root: String, doc: String) -> Result<serde_json::Value, String> {
+    let root = project_root(&kb_root).ok_or("project root not found")?;
+    let kb_root_abs = root.join(&kb_root).to_string_lossy().to_string();
+    let mut db = IndexDb::open(&kb_root_abs).map_err(|e| format!("failed to open index: {e}"))?;
+    search::cmd_links(&mut db, &kb_root_abs, &doc, true).map_err(|e| e.to_string())
+}
+
 pub fn run() {
     let mut builder = tauri::Builder::default();
 
@@ -96,7 +129,7 @@ pub fn run() {
 
     // TODO(phase-2): 替换 scan_dir 临时桥接代码为 sharp_core::commands::* 薄适配层
     builder
-        .invoke_handler(tauri::generate_handler![scan_dir])
+        .invoke_handler(tauri::generate_handler![scan_dir, get_graph, get_doc, get_backlinks])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

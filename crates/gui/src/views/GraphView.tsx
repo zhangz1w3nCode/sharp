@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Settings, Link2 } from "lucide-react";
 import { useApp } from "../lib/store";
-import { graphFrom } from "../lib/derive";
+import { GraphData } from "../lib/derive";
+import { getGraph, getDoc, getBacklinks } from "../lib/fs";
+import { Card } from "../lib/types";
+import { Backlink } from "../lib/derive";
 import EmptyDots from "../components/EmptyDots";
 
 interface SimNode {
@@ -26,7 +29,14 @@ interface Pop {
 /** 知识图谱 · force-directed(移植 graph/graph.html 物理模拟,数据由 wikilink 推导) */
 export default function GraphView() {
   const { state, api } = useApp();
-  const data = useMemo(() => graphFrom(state.cards), [state.cards]);
+  const [data, setData] = useState<GraphData>({ nodes: [], edges: [] });
+  useEffect(() => {
+    getGraph(state.kbRoot)
+      .then(setData)
+      .catch(() => {
+        api.toast("图谱加载失败，请运行 sharp index --build 构建索引");
+      });
+  }, [state.kbRoot]);
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -35,8 +45,8 @@ export default function GraphView() {
   const [size, setSize] = useState({ w: 900, h: 580 });
   const [showSettings, setShowSettings] = useState(false);
   const [arrows, setArrows] = useState(true);
+  const [showPop, setShowPop] = useState(true);
   const [pop, setPop] = useState<Pop | null>(null);
-
   const sim = useRef({
     nodes: [] as SimNode[],
     raf: 0,
@@ -84,6 +94,7 @@ export default function GraphView() {
     const s = sim.current;
     s.nodes = data.nodes.map((_n, i) => {
       const inDeg = data.edges.filter((e) => e.t === i).length;
+      const outDeg = data.edges.filter((e) => e.s === i).length;
       const a = (i / data.nodes.length) * 2 * Math.PI - Math.PI / 2;
       return {
         x: s.cx + Math.cos(a) * 180,
@@ -92,8 +103,8 @@ export default function GraphView() {
         vy: 0,
         fx: null,
         fy: null,
-        baseR: 10 + Math.min(inDeg, 5) * 3.5,
-        deg: inDeg + data.edges.filter((e) => e.s === i).length,
+        baseR: 12 * Math.min(1 + Math.sqrt(outDeg) * 0.3, 3),
+        deg: inDeg + outDeg,
       };
     });
     /* 先同步定位一次,保证首帧不空 */
@@ -246,7 +257,7 @@ export default function GraphView() {
     svg.addEventListener("wheel", onWheel, { passive: false });
     return () => svg.removeEventListener("wheel", onWheel);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [size]);
+  }, [size, data]);
 
   function onMouseDown(e: React.MouseEvent) {
     const s = sim.current;
@@ -336,7 +347,7 @@ export default function GraphView() {
       let top = py - 24;
       if (left + 250 > size.w) left = px - sn.baseR * s.sizeMul * s.zoom - 260;
       if (top < 6) top = py + sn.baseR * s.sizeMul * s.zoom + 10;
-      setPop({
+      if (showPop) setPop({
         x: Math.max(6, Math.min(size.w - 256, left)),
         y: Math.max(6, Math.min(size.h - 90, top)),
         title: n.title,
@@ -353,19 +364,38 @@ export default function GraphView() {
     setPop(null);
   }
 
-  function clickNode(i: number) {
+  async function clickNode(i: number) {
     if (sim.current.moved) {
       sim.current.moved = false;
       return;
     }
     const n = data.nodes[i];
     if (!n) return;
-    const c = state.cards.find((x) => x.path === n.id);
-    if (c) {
-      api.setView("search");
-      api.setSearchDetail(c.id);
-    } else {
-      api.openSheet({ kind: "broken", path: n.id });
+    try {
+      const doc = await getDoc(state.kbRoot, n.id);
+      const card: Card = {
+        id: n.id,
+        path: `.knowledges/${n.id}`,
+        title: doc.frontmatter.name,
+        summary: doc.frontmatter.summary,
+        body: doc.body,
+        starred: false,
+        updatedAt: Date.now(),
+      };
+      // 从后端获取反向链接，不做前端计算
+      const blRes = await getBacklinks(state.kbRoot, n.id);
+      const bl: Backlink[] = blRes.related.map((r) => {
+        const srcNode = data.nodes.find((node) => node.id === r.doc);
+        return {
+          card: { id: r.doc, path: `.knowledges/${r.doc}`, title: srcNode?.title || r.doc, summary: srcNode?.summary || "", body: "", starred: false, updatedAt: 0 },
+          rel: r.relation || "链接",
+        };
+      });
+      api.upsertCard(card);
+      api.setBacklinks(bl);
+      api.selectCard(card.id);
+    } catch {
+      api.toast("文档加载失败");
     }
   }
 
@@ -389,7 +419,7 @@ export default function GraphView() {
     );
   }
 
-  if (state.cards.length === 0) {
+  if (data.nodes.length === 0) {
     return (
       <main className="pane pane-main">
         <EmptyDots hint="暂无卡片,图谱为空" />
@@ -428,8 +458,8 @@ export default function GraphView() {
                     clickNode(i);
                   }}
                 >
-                  <circle r={(10 + Math.min(data.edges.filter((e) => e.t === i).length, 5) * 3.5) * sim.current.sizeMul} />
-                  <text y={(10 + Math.min(data.edges.filter((e) => e.t === i).length, 5) * 3.5) * sim.current.sizeMul + 4}>{n.title}</text>
+                  <circle r={(sim.current.nodes[i]?.baseR ?? 12) * sim.current.sizeMul} />
+                  <text y={(sim.current.nodes[i]?.baseR ?? 12) * sim.current.sizeMul + 4}>{n.title}</text>
                 </g>
               ))}
             </g>
@@ -470,6 +500,13 @@ export default function GraphView() {
             >
               <span className="sw" />
               箭头
+            </div>
+            <div
+              className={`g-toggle${showPop ? " on" : ""}`}
+              onClick={() => setShowPop((v) => !v)}
+            >
+              <span className="sw" />
+              悬浮卡片
             </div>
             {slider("标签淡出", 0, 100, 0, (v) => {
               sim.current.textFade = v / 100;

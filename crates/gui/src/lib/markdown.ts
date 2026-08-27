@@ -15,7 +15,9 @@ export function nameOf(path: string): string {
   return m ? m[1] : path;
 }
 
-const WL_RE = /\[\.knowledges\/([^\]|]+)(?:\|([^\]]+))?\]/g;
+const WL_RE = /\[\.knowledges\/([^|\]]+)(?:\|([^\]]+))?\]/g;
+/* 双括号 + 反引号格式: [[`.knowledges/path`|relation]] */
+const WL_RE_DOUBLE = /\[\[`\.knowledges\/([^`]+)`(?:\|([^\]]+))?\]\]/g;
 
 /** 编辑器高亮(暗色面) */
 export function hl(md: string): string {
@@ -25,6 +27,7 @@ export function hl(md: string): string {
   out = out.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
   out = out.replace(/`[^`]+`/g, (m) => '<span class="ic">' + m + "</span>"); // inline code → amber
   out = out.replace(/\[\.knowledges[^\]]+\]/g, (m) => '<span class="lk">' + m + "</span>"); // wikilink → coral
+  out = out.replace(/\[\[`.knowledges[^\]]+\]\]/g, (m) => '<span class="lk">' + m + "</span>"); // 双括号 wikilink
   out = out.replace(/^([-*])\s/gm, '<span class="lm">$1</span> '); // list marker → muted
   return out;
 }
@@ -42,6 +45,19 @@ export function render(md: string, resolve?: (path: string) => boolean): string 
         return '<pre class="md-pre"><code>' + esc(inner) + "</code></pre>";
       }
       let h = esc(part);
+      /* 先提取双括号 wikilink [[`.knowledges/path`|rel]] 为占位符,防止反引号被 inline code 提取 */
+      const wlDoubles: string[] = [];
+      h = h.replace(WL_RE_DOUBLE, (_m, p: string, r?: string) => {
+        const path = ".knowledges/" + p;
+        const broken = resolve ? !resolve(path) : false;
+        const rel = (r || "").trim();
+        wlDoubles.push(
+          '<a class="md-link' + (broken ? " broken" : "") + '" data-path="' + esc(path) + '">' +
+          esc(nameOf(p)) + (rel && !broken ? '<span class="md-rel">' + esc(rel) + "</span>" : "") +
+          "</a>"
+        );
+        return "\u0001" + (wlDoubles.length - 1) + "\u0001";
+      });
       /* 先抽出 inline code 为占位符:文档中字面值 `[path|rel]` 不应被解析为链接 */
       const codes: string[] = [];
       h = h.replace(/`([^`]+)`/g, (_m, c: string) => {
@@ -70,6 +86,7 @@ export function render(md: string, resolve?: (path: string) => boolean): string 
       h = h.replace(/^[-*] (.*)$/gm, "<li>$1</li>");
       h = h.replace(/((?:<li>.*<\/li>\n?)+)/g, "<ul>$1</ul>");
       h = h.replace(/\u0000(\d+)\u0000/g, (_m, i: string) => '<code class="md-ic">' + codes[Number(i)] + "</code>");
+      h = h.replace(/\u0001(\d+)\u0001/g, (_m, i: string) => wlDoubles[Number(i)]);
       h = h
         .split(/\n{2,}/)
         .map((b) => (/^\s*<(h2|h3|ul|pre)/.test(b) ? b : '<p class="md-p">' + b.replace(/\n/g, "<br>") + "</p>"))
@@ -86,11 +103,18 @@ export interface WikiLink {
 
 /** 提取正文中全部 wikilink(双链 / 图谱 / 反向链接的数据源)。code 块与 inline code 中的字面值不算链接。 */
 export function extractLinks(md: string): WikiLink[] {
-  const clean = md.replace(/```[\s\S]*?```/g, "").replace(/`[^`]+`/g, "");
+  const noCodeBlock = md.replace(/```[\s\S]*?```/g, "");
   const out: WikiLink[] = [];
-  const re = new RegExp(WL_RE.source, "g");
   let m: RegExpExecArray | null;
-  while ((m = re.exec(clean))) {
+  /* 双括号格式: [[`.knowledges/path`|relation]] — 先提取,避免反引号被 inline code 清理 */
+  const reDouble = new RegExp(WL_RE_DOUBLE.source, "g");
+  while ((m = reDouble.exec(noCodeBlock))) {
+    out.push({ path: ".knowledges/" + m[1], rel: (m[2] || "链接").trim() });
+  }
+  /* 移除双括号 wikilink 和 inline code 后,提取单括号格式 */
+  const clean = noCodeBlock.replace(WL_RE_DOUBLE, "").replace(/`[^`]+`/g, "");
+  const reSingle = new RegExp(WL_RE.source, "g");
+  while ((m = reSingle.exec(clean))) {
     out.push({ path: ".knowledges/" + m[1], rel: (m[2] || "链接").trim() });
   }
   return out;
